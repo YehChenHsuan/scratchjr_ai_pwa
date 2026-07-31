@@ -19,9 +19,14 @@ export default class Menu {
         var list = JSON.parse(b.owner.arg.list);
         var num = b.owner.arg.numperrow;
         var p = b.parentNode;
-        var dh = size * Math.round(list.length / num);
-        var rows = list.length / num;
-        var w = size * list.length / rows;
+        // Round UP: a partially filled last row still needs a full row of
+        // height, otherwise the leftover choices render outside the panel.
+        // (7 pitches at 3 per row need 3 rows -- Math.round(7/3) gave 2.)
+        var rows = Math.ceil(list.length / num);
+        var dh = size * rows;
+        // Width is a full row of slots, not list.length/rows, which produced
+        // a fractional slot count whenever the last row was incomplete.
+        var w = size * Math.min(list.length, num);
         var scaledWidth = w * scaleMultiplier;
         var dx = b.left + (b.offsetWidth - scaledWidth) / 2;
         if ((dx + scaledWidth) > p.width) {
