@@ -1,4 +1,4 @@
-self.__SCRATCHJR_PRECACHE_VERSION="578dab513b1bcab7";
+self.__SCRATCHJR_PRECACHE_VERSION="e91b3020c6b309e9";
 self.__SCRATCHJR_CORE_URLS=[
   "./aitrainer.html",
   "./app.bundle.js",
