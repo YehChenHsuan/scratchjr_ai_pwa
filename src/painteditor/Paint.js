@@ -513,14 +513,20 @@ export default class Paint {
     }
 
     static setCanvasTransform (value) {
+        var mc = gn('maincanvas');
+        var t;
         if (isAndroid) { // Use 3D translate to increase speed
-            gn('maincanvas').style.webkitTransform = 'translate3d(' + gn('maincanvas').dx + 'px,'
-                + gn('maincanvas').dy + 'px, 0px) scale(' + value + ',' + value + ')';
+            t = 'translate3d(' + mc.dx + 'px,' + mc.dy + 'px, 0px) scale(' + value + ',' + value + ')';
         } else { // Use 2D translate to maintain sharpness
-            gn('maincanvas').style.webkitTransform = 'translate(' + gn('maincanvas').dx + 'px,'
-                + gn('maincanvas').dy + 'px) scale(' + value + ',' + value + ')';
-
+            t = 'translate(' + mc.dx + 'px,' + mc.dy + 'px) scale(' + value + ',' + value + ')';
         }
+        // Safari keeps -webkit-transform and transform as separate longhands, so the
+        // webkitTransform mirror in lib.js is skipped there (a native setter exists).
+        // getScreenCTM() only reflects the standard `transform`, so writing just the
+        // prefixed form left the maincanvas dx/dy translation out of the matrix and
+        // shape drawing started offset from the touch point on iPad. Set both.
+        mc.style.webkitTransform = t;
+        mc.style.transform = t;
     }
 
     static adjustPos (delta) {
