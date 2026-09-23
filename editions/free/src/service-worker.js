@@ -1,5 +1,5 @@
 /* global self, caches, fetch, Response */
-// SW Build Version: 2026-09-23T05:28:51.082Z
+// SW Build Version: 2026-09-23T05:50:25.950Z
 importScripts('./precache-manifest.js');
 
 const CACHE_PREFIX = 'scratchjr-';
@@ -136,9 +136,12 @@ self.addEventListener('install', event => {
         }
     }).then(results => {
         const failed = results.filter(item => !item.ok).length;
-        const fetchedItems = results.filter(item => !item.reused && item.ok).map(item => item.url);
-        console.log('[SW Install] 實際自網路下載的檔案 (reused=false):', JSON.stringify(fetchedItems));
-        return notifyClients({type: 'CORE_CACHE_COMPLETE', total: results.length, failed, fetchedItems}).then(() => results);
+        const isLocal = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
+        if (isLocal) {
+            const fetchedItems = results.filter(item => !item.reused && item.ok).map(item => item.url);
+            console.log('[SW Install] 實際自網路下載的檔案 (reused=false):', JSON.stringify(fetchedItems));
+        }
+        return notifyClients({type: 'CORE_CACHE_COMPLETE', total: results.length, failed}).then(() => results);
     }).then(results => {
         const failedCritical = results.filter(item => !item.ok && CRITICAL_URLS.indexOf(item.url) > -1);
         if (failedCritical.length) throw new Error('Critical PWA files failed to cache');
