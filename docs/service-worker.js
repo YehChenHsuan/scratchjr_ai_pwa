@@ -1,5 +1,5 @@
 /* global self, caches, fetch, Response, URL, Set, importScripts */
-// SW Build Version: 2026-09-23T13:04:59.220Z
+// SW Build Version: 2026-09-23T14:14:53.844Z
 importScripts('./precache-manifest.js');
 
 const CACHE_PREFIX = 'scratchjr-';

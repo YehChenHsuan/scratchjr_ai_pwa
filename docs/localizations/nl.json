@@ -398,5 +398,6 @@
     "PWA_STORAGE_USED": "Storage Used",
     "PWA_INSTALLED_BROWSER": "✓ Installed. Please open from Desktop or Home Screen to use offline.",
     "PWA_CHROMIUM_MANUAL": "Click the install icon in the address bar or select 'Install ScratchJr AI' from the browser menu.",
-    "PWA_PROTECTION_DENIED_HINT": "Permission not yet granted. It is usually enabled automatically after installing as an App."
+    "PWA_PROTECTION_DENIED_HINT": "Permission not yet granted. It is usually enabled automatically after installing as an App.",
+    "IMPORT_FAILED": "This file is not a ScratchJr project, or the file is damaged."
 }
