@@ -1,3 +1,4 @@
+import '../utils/PWAInstall';
 import {preprocessAndLoadCss} from '../utils/lib';
 import Localization from '../utils/Localization';
 import InitialOptions from '../utils/InitialOptions';

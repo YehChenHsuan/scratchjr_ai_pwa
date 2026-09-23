@@ -3,6 +3,7 @@
   "short_name": "ScratchJr AI",
   "description": "保留 ScratchJr 圖像式程式設計精神，加入離線 AI 手勢學習功能。",
   "lang": "zh-TW",
+  "id": "./index.html",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
