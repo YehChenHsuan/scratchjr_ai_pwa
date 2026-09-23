@@ -1,0 +1,84 @@
+/
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
+
+/index
+  Cache-Control: no-cache
+
+/home.html
+  Cache-Control: no-cache
+
+/home
+  Cache-Control: no-cache
+
+/editor.html
+  Cache-Control: no-cache
+
+/editor
+  Cache-Control: no-cache
+
+/aitrainer.html
+  Cache-Control: no-cache
+
+/aitrainer
+  Cache-Control: no-cache
+
+/gettingstarted.html
+  Cache-Control: no-cache
+
+/gettingstarted
+  Cache-Control: no-cache
+
+/service-worker.js
+  Cache-Control: no-cache
+
+/precache-manifest.js
+  Cache-Control: no-cache
+
+/app.bundle.js
+  Cache-Control: no-cache
+
+/media.json
+  Cache-Control: no-cache
+
+/settings.json
+  Cache-Control: no-cache
+
+/css/*
+  Cache-Control: no-cache
+
+/inapp/*
+  Cache-Control: no-cache
+
+/*.webmanifest
+  Content-Type: application/manifest+json
+  Cache-Control: no-cache
+
+/vendor/ai/*
+  Cache-Control: public, max-age=31536000, immutable
+
+/svglibrary/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/pnglibrary/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/assets/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/sounds/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/localizations/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/samples/*
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(self), microphone=(self)
+  Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; connect-src 'self' blob:; font-src 'self' data:; object-src 'none'; base-uri 'self'; form-action 'self'

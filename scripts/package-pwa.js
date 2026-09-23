@@ -44,11 +44,9 @@ const OUTPUT = path.join(ROOT, 'dist', 'pwa');
     };
     fs.writeFileSync(path.join(OUTPUT, 'deployment-report.json'), JSON.stringify(report, null, 2));
 
-    // Netlify headers: keep the service worker fresh, fix webmanifest MIME.
-    fs.writeFileSync(path.join(OUTPUT, '_headers'),
-        '/service-worker.js\n  Cache-Control: no-cache\n' +
-        '/precache-manifest.js\n  Cache-Control: no-cache\n' +
-        '/*.webmanifest\n  Content-Type: application/manifest+json\n');
+    if (fs.existsSync(path.join(SOURCE, '_headers'))) {
+        fs.copyFileSync(path.join(SOURCE, '_headers'), path.join(OUTPUT, '_headers'));
+    }
     console.log(`PWA deployment package: ${OUTPUT}`);
     console.log(JSON.stringify(report, null, 2));
 })();
