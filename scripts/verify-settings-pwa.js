@@ -100,33 +100,120 @@ async function main() {
         console.log(`- 已儲存截圖: ${p16} 和 ${pPromptable}`);
 
         // 監聽 console
-        page1.on('console', msg => console.log('  [Browser]', msg.text()));
+        page1.on('console', msg => {
+            const txt = msg.text();
+            if (!txt.includes('Content Security Policy') && !txt.includes('The policy is report-only')) {
+                console.log('  [Browser]', txt);
+            }
+        });
         page1.on('pageerror', err => console.log('  [PageError]', err));
 
-        // 點擊按鈕，驗證 prompt() 被呼叫且狀態轉為 installed
+        // 點擊按鈕，驗證 prompt() 被呼叫且狀態轉為 installed-browser
         console.log('- 點擊安裝按鈕...');
         await installBtn.click();
-        await sleep(1000);
-        // 如果瀏覽器本身觸發了 prompt，我們也發送 appinstalled 事件模擬使用者安裝成功
-        await page1.evaluate(() => {
-            window.dispatchEvent(new Event('appinstalled'));
-        });
         await sleep(500);
 
+        const installedBrowserPill = await page1.waitForSelector('.pwa-status-pill.installed-browser', { timeout: 6000 });
+        const browserText = await installedBrowserPill.textContent();
+        console.log(`- 安裝後瀏覽器狀態更新: "${browserText}"`);
+        assert(browserText.includes('已安裝，請從桌面或主畫面的 ScratchJr AI 圖示開啟'), '應更新為 installed-browser 狀態');
+
+        // 滾動並截圖 installed-browser 狀態
+        await page1.evaluate(() => {
+            const el = document.querySelector('.pwa-status-pill.installed-browser');
+            const wrapc = document.getElementById('wrapc');
+            if (el && wrapc) {
+                wrapc.scrollTop = Math.max(0, el.offsetTop - 120);
+            } else if (el) {
+                el.scrollIntoView();
+            }
+        });
+        await sleep(300);
+        const pInstalledBrowser = path.join(SCREENSHOTS_DIR, 'pwa-installed-browser.png');
+        await page1.screenshot({ path: pInstalledBrowser });
+        console.log(`- 已儲存截圖: ${pInstalledBrowser}`);
+
+        // 模擬 standalone 模式 (獨立視窗)
+        console.log('- 模擬 standalone 模式 (獨立視窗)...');
+        await page1.evaluate(() => {
+            const origMatchMedia = window.matchMedia;
+            window.matchMedia = function (query) {
+                if (query === '(display-mode: standalone)') {
+                    return { matches: true, addListener: () => {}, removeListener: () => {} };
+                }
+                return origMatchMedia ? origMatchMedia.call(window, query) : { matches: false };
+            };
+            if (window.__PWAInstall && window.__PWAInstall.notifyListeners) {
+                window.__PWAInstall.notifyListeners();
+            }
+        });
+        await sleep(300);
         const installedPill = await page1.waitForSelector('.pwa-status-pill.installed', { timeout: 6000 });
         const installedText = await installedPill.textContent();
-        console.log(`- 安裝後狀態更新: "${installedText}"`);
-        assert(installedText.includes('已安裝'), '應更新為已安裝狀態');
+        console.log(`- Standalone 模式狀態: "${installedText}"`);
+        assert(installedText.includes('已安裝，可離線使用'), '應更新為 installed 狀態');
 
-        // 滾動並截圖 installed 狀態
         await page1.evaluate(() => {
             const el = document.querySelector('.pwa-status-pill.installed');
-            if (el) el.scrollIntoView();
+            const wrapc = document.getElementById('wrapc');
+            if (el && wrapc) {
+                wrapc.scrollTop = Math.max(0, el.offsetTop - 120);
+            } else if (el) {
+                el.scrollIntoView();
+            }
         });
         await sleep(300);
         const pInstalled = path.join(SCREENSHOTS_DIR, 'pwa-installed.png');
         await page1.screenshot({ path: pInstalled });
         console.log(`- 已儲存截圖: ${pInstalled}`);
+
+        // 模擬 chromium-manual 狀態 (非 standalone、無 prompt、無 localStorage 旗標)
+        console.log('- 模擬 chromium-manual 狀態 (非 standalone、無 prompt、無 localStorage 旗標)...');
+        await page1.evaluate(() => {
+            window.matchMedia = function () {
+                return { matches: false, addListener: () => {}, removeListener: () => {} };
+            };
+            if (window.__PWAInstall) {
+                window.__PWAInstall.clearInstalledFlag();
+            } else {
+                localStorage.removeItem('scratchjr_pwa_installed');
+            }
+        });
+        await sleep(300);
+        const manualPill = await page1.waitForSelector('.pwa-status-pill.chromium-manual', { timeout: 6000 });
+        const manualText = await manualPill.textContent();
+        console.log(`- Chromium 手動安裝指引狀態: "${manualText}"`);
+        assert(manualText.includes('點網址列右側的安裝圖示'), '應更新為 chromium-manual 狀態');
+
+        await page1.evaluate(() => {
+            const el = document.querySelector('.pwa-status-pill.chromium-manual');
+            const wrapc = document.getElementById('wrapc');
+            if (el && wrapc) {
+                wrapc.scrollTop = Math.max(0, el.offsetTop - 120);
+            } else if (el) {
+                el.scrollIntoView();
+            }
+        });
+        await sleep(300);
+        const pManual = path.join(SCREENSHOTS_DIR, 'pwa-chromium-manual.png');
+        await page1.screenshot({ path: pManual });
+        console.log(`- 已儲存截圖: ${pManual}`);
+
+        // 測試 beforeinstallprompt 重新觸發時清除 localStorage 旗標並恢復 promptable
+        console.log('- 測試 beforeinstallprompt 重新觸發時清除 localStorage 旗標並恢復 promptable...');
+        await page1.evaluate(() => {
+            localStorage.setItem('scratchjr_pwa_installed', '1');
+            const promptEvent = new Event('beforeinstallprompt', { cancelable: true });
+            promptEvent.prompt = () => Promise.resolve();
+            promptEvent.userChoice = Promise.resolve({ outcome: 'accepted' });
+            window.dispatchEvent(promptEvent);
+        });
+        await sleep(300);
+        const rePromptBtn = await page1.waitForSelector('button.pwa-large-btn', { timeout: 5000 });
+        assert(rePromptBtn !== null, '觸發 beforeinstallprompt 後應顯示安裝按鈕');
+        const flagAfterBIP = await page1.evaluate(() => localStorage.getItem('scratchjr_pwa_installed'));
+        assert(flagAfterBIP === null, 'beforeinstallprompt 應清除 localStorage 旗標');
+        console.log('- 旗標清除與 promptable 恢復驗證成功');
 
         // ----------------------------------------------------
         // 情境 4: 英文語系驗證 (在同頁面點選 English 按鈕切換)
@@ -200,6 +287,53 @@ async function main() {
             console.log(`- 核心資源快取數: ${cacheCounts.coreCount}`);
         }
 
+        // ----------------------------------------------------
+        // 驗證輪詢期間按鈕 DOM 節點同一性 (===)
+        // ----------------------------------------------------
+        console.log('- 驗證輪詢期間按鈕 DOM 節點同一性 (===)...');
+        await page1.evaluate(() => {
+            window.__testProtBtnBefore = document.querySelector('button.pwa-action-btn-small');
+        });
+        const hasBtnBefore = await page1.evaluate(() => window.__testProtBtnBefore !== null);
+        assert(hasBtnBefore, '頁面上應存在資料保護啟用按鈕');
+
+        console.log('  等待 2.5 秒輪詢週期...');
+        await sleep(2500);
+        const isSameNode = await page1.evaluate(() => {
+            const btnAfter = document.querySelector('button.pwa-action-btn-small');
+            return window.__testProtBtnBefore === btnAfter;
+        });
+        console.log(`  DOM 節點同一性比對結果: ${isSameNode ? '通過 (=== 同一參照)' : '失敗'}`);
+        assert(isSameNode, '輪詢期間按鈕的 DOM 節點沒有被替換（前後用 === 比對同一個元素）');
+
+        // ----------------------------------------------------
+        // 驗證點擊資料保護按鈕後，requestPersistentStorage 回傳 false 的提示
+        // ----------------------------------------------------
+        console.log('- 驗證資料保護按鈕點擊拒絕提示...');
+        await page1.evaluate(() => {
+            if (navigator.storage) {
+                navigator.storage.persist = () => Promise.resolve(false);
+            }
+        });
+        const protBtn = await page1.waitForSelector('button.pwa-action-btn-small', { timeout: 5000 });
+        await protBtn.click();
+        await sleep(1000);
+
+        const deniedHint = await page1.waitForSelector('.pwa-protection-denied-hint', { state: 'visible', timeout: 5000 });
+        const hintText = await deniedHint.textContent();
+        console.log(`  資料保護拒絕提示內容: "${hintText}"`);
+        assert(hintText.includes('瀏覽器暫未同意') || hintText.includes('Permission not yet granted'),
+            '應顯示「瀏覽器暫未同意，安裝成 App 後通常會自動啟用」');
+
+        await page1.evaluate(() => {
+            const sec = document.querySelector('.pwa-offline-card');
+            if (sec) sec.scrollIntoView({ behavior: 'instant', block: 'start' });
+        });
+        await sleep(300);
+        const pDenied = path.join(SCREENSHOTS_DIR, 'pwa-storage-denied.png');
+        await page1.screenshot({ path: pDenied });
+        console.log(`  - 已儲存拒絕提示截圖: ${pDenied}`);
+
         // 切換為離線模式
         console.log('- 切換為離線模式 context.setOffline(true)...');
         await context1.setOffline(true);
@@ -245,7 +379,7 @@ async function main() {
         const iosGuide = await page2.waitForSelector('.pwa-ios-guide', { timeout: 8000 });
         const guideText = await iosGuide.textContent();
         console.log(`- iOS 指引內容: ${guideText.slice(0, 80)}...`);
-        assert(guideText.includes('Safari'), '應包含步驟一');
+        assert(guideText.includes('分享') || guideText.includes('Share'), '應包含步驟一');
         assert(guideText.includes('主畫面') || guideText.includes('Home Screen'), '應包含步驟二或三');
 
         const hasShareSvg = await page2.evaluate(() => {
@@ -294,11 +428,12 @@ async function main() {
                 wrangler.kill();
             }
         }
-        process.exit(0);
     }
 }
 
-main().catch(err => {
+main().then(() => {
+    process.exit(0);
+}).catch(err => {
     console.error('驗證失敗:', err);
     process.exit(1);
 });

@@ -579,11 +579,31 @@ div.localizationselect.selected:after {
     font-size: 24px;
     font-weight: bold;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    max-width: ${css_vw(75)};
+    box-sizing: border-box;
 }
 
 .pwa-status-pill.installed {
     background-color: #4CAF50;
     color: #fff;
+}
+
+.pwa-status-pill.installed-browser {
+    background-color: #e8f5e9;
+    color: #2e7d32;
+    border: 2px solid #81c784;
+    font-size: 19px;
+    line-height: 1.4;
+    text-align: center;
+}
+
+.pwa-status-pill.chromium-manual {
+    background-color: #e3f2fd;
+    color: #1565c0;
+    border: 2px dashed #90caf9;
+    font-size: 19px;
+    line-height: 1.4;
+    text-align: center;
 }
 
 .pwa-status-pill.unsupported {
@@ -746,5 +766,15 @@ div.localizationselect.selected:after {
     font-family: Roboto;
     font-size: 18px;
     padding: ${css_vh(1.5)} 0;
+}
+
+.pwa-protection-denied-hint {
+    display: inline-block;
+    color: #c62828;
+    font-family: Roboto;
+    font-size: 14px;
+    font-weight: 500;
+    margin-left: 10px;
+    vertical-align: middle;
 }
 

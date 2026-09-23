@@ -66,8 +66,15 @@ if (typeof window !== 'undefined') {
     if (isLocalhost) {
         window.__PWAInstall = {
             getDeferredPrompt: () => deferredPrompt,
-            clearInstalledFlag: () => clearInstalledFlag(),
-            setInstalledFlag: () => setInstalledFlag()
+            clearInstalledFlag: () => {
+                clearInstalledFlag();
+                notifyListeners();
+            },
+            setInstalledFlag: () => {
+                setInstalledFlag();
+                notifyListeners();
+            },
+            notifyListeners: () => notifyListeners()
         };
     }
 }
