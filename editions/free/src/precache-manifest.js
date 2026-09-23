@@ -1,4 +1,4 @@
-self.__SCRATCHJR_PRECACHE_VERSION="49bdfa69824088bd";
+self.__SCRATCHJR_PRECACHE_VERSION="47d975badafcaf33";
 self.__SCRATCHJR_AI_VERSION="d1936e4930b42abf";
 self.__SCRATCHJR_CORE_URLS=[
   "./aitrainer.html",
@@ -1006,7 +1006,7 @@ self.__SCRATCHJR_CORE_HASHES={
   "./css/librarymodal.css": "ef521c8c60d2",
   "./css/lobby.css": "da5fc7ce7d48",
   "./css/paintlook.css": "e3aac5e17400",
-  "./css/start.css": "b097101dbe05",
+  "./css/start.css": "f4ec629da8c2",
   "./css/thumbs.css": "2f088f405c37",
   "./editor.html": "cc0629140392",
   "./gettingstarted.html": "cd3baac3347e",
@@ -1230,7 +1230,7 @@ self.__SCRATCHJR_CORE_HASHES={
   "./pop.mp3": "671e726405d1",
   "./samples/Star.txt": "7e8c299dd2d9",
   "./samples/star.png": "d46e97c1bb77",
-  "./service-worker.js": "9b176fc2fbfc",
+  "./service-worker.js": "be2cdec3ff8f",
   "./settings.json": "717ab9b5712c",
   "./sounds/boing.wav": "6c30220a098b",
   "./sounds/copy.wav": "9e44730581c5",
