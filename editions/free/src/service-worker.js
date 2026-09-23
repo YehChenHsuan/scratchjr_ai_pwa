@@ -258,7 +258,11 @@ self.addEventListener('fetch', event => {
         event.respondWith(fetch(request).then(response => {
             if (!response || response.status !== 200) return response;
             const copy = response.clone();
-            cleanResponse(copy).then(clean => caches.open(CORE_CACHE).then(cache => cache.put(request, clean)));
+            const cacheKey = url.origin + url.pathname;
+            const key = './' + url.pathname.replace(/^\//, '');
+            const hash = CORE_HASHES[key] || AI_HASHES[key];
+            const cleanPromise = hash ? cleanResponse(copy, {'X-SJR-Hash': hash}) : cleanResponse(copy);
+            cleanPromise.then(clean => caches.open(CORE_CACHE).then(cache => cache.put(cacheKey, clean)));
             return response;
         }).catch(() => caches.match(request, {ignoreSearch: true, ignoreVary: true})
             .then(cached => cached || caches.match('./index.html', {ignoreVary: true}))));
@@ -271,7 +275,11 @@ self.addEventListener('fetch', event => {
         .then(cached => cached || fetch(request).then(response => {
             if (!response || response.status !== 200) return response;
             const copy = response.clone();
-            cleanResponse(copy).then(clean => caches.open(targetCache).then(cache => cache.put(request, clean)));
+            const cacheKey = url.origin + url.pathname;
+            const key = './' + url.pathname.replace(/^\//, '');
+            const hash = CORE_HASHES[key] || AI_HASHES[key];
+            const cleanPromise = hash ? cleanResponse(copy, {'X-SJR-Hash': hash}) : cleanResponse(copy);
+            cleanPromise.then(clean => caches.open(targetCache).then(cache => cache.put(cacheKey, clean)));
             return response;
         }).catch(() => new Response('', {status: 503, statusText: 'Offline'}))));
 });
