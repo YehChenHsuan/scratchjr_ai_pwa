@@ -384,7 +384,7 @@
     "PWA_INSTALLED_STATUS": "✓ 已安装，可离线使用",
     "PWA_UNSUPPORTED_HINT": "请使用 Chrome 或 Edge 打开，即可安装",
     "PWA_IOS_TITLE": "在 iPad / iPhone 上安装",
-    "PWA_IOS_STEP1": "① 点 Safari 的分享按钮",
+    "PWA_IOS_STEP1": "① 点浏览器的分享或菜单按钮",
     "PWA_IOS_STEP2": "② 选“添加到主屏幕”",
     "PWA_IOS_STEP3": "③ 从主屏幕打开",
     "PWA_IOS_WARNING": "iPad 上，浏览器和主屏幕 App 的作品是分开保存的，请先安装再开始创作；已有作品请先分享或导出",
@@ -396,5 +396,8 @@
     "PWA_STATUS_PROTECTED": "已保护",
     "PWA_STATUS_UNPROTECTED": "未启用",
     "PWA_ENABLE_PROTECTION_BUTTON": "启用数据保护",
-    "PWA_STORAGE_USED": "已用存储空间"
+    "PWA_STORAGE_USED": "已用存储空间",
+    "PWA_INSTALLED_BROWSER": "✓ 已安装，请从桌面或主画面的 ScratchJr AI 图标开启，才能离线使用",
+    "PWA_CHROMIUM_MANUAL": "点网址列右侧的安装图标，或从浏览器选单选『安装 ScratchJr AI』",
+    "PWA_PROTECTION_DENIED_HINT": "浏览器暂未同意，安装成 App 后通常会自动启用"
 }
