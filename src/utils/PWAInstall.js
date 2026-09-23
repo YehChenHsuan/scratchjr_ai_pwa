@@ -1,6 +1,5 @@
 let deferredPrompt = null;
 const listeners = new Set();
-let isInstalled = false;
 
 function notifyListeners () {
     listeners.forEach(cb => {
@@ -12,32 +11,71 @@ function notifyListeners () {
     });
 }
 
+const STORAGE_KEY = 'scratchjr_pwa_installed';
+
+function setInstalledFlag () {
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.setItem(STORAGE_KEY, '1');
+        }
+    } catch (e) {
+        // ignore localStorage errors (e.g. private mode)
+    }
+}
+
+function clearInstalledFlag () {
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            window.localStorage.removeItem(STORAGE_KEY);
+        }
+    } catch (e) {
+        // ignore localStorage errors
+    }
+}
+
+function getInstalledFlag () {
+    try {
+        if (typeof window !== 'undefined' && window.localStorage) {
+            return window.localStorage.getItem(STORAGE_KEY) === '1';
+        }
+    } catch (e) {
+        // ignore localStorage errors
+    }
+    return false;
+}
+
 if (typeof window !== 'undefined') {
     window.addEventListener('beforeinstallprompt', e => {
         e.preventDefault();
         deferredPrompt = e;
+        clearInstalledFlag();
         notifyListeners();
     });
 
     window.addEventListener('appinstalled', () => {
         deferredPrompt = null;
-        isInstalled = true;
+        setInstalledFlag();
         notifyListeners();
     });
 
-    window.__PWAInstall = {
-        getDeferredPrompt: () => deferredPrompt,
-        setInstalled: val => {
-            isInstalled = val;
-            notifyListeners();
-        }
-    };
+    const isLocalhost = Boolean(
+        window.location &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
+    );
+
+    if (isLocalhost) {
+        window.__PWAInstall = {
+            getDeferredPrompt: () => deferredPrompt,
+            clearInstalledFlag: () => clearInstalledFlag(),
+            setInstalledFlag: () => setInstalledFlag()
+        };
+    }
 }
 
 export function isStandalone () {
     if (typeof window === 'undefined') return false;
     const isMatch = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
-    return Boolean(isMatch || navigator.standalone === true || isInstalled);
+    return Boolean(isMatch || navigator.standalone === true);
 }
 
 export function isIOS () {
@@ -53,8 +91,14 @@ export function getInstallState () {
     if (deferredPrompt !== null) {
         return 'promptable';
     }
+    if (getInstalledFlag()) {
+        return 'installed-browser';
+    }
     if (isIOS()) {
         return 'ios';
+    }
+    if (typeof window !== 'undefined' && 'BeforeInstallPromptEvent' in window) {
+        return 'chromium-manual';
     }
     return 'unsupported';
 }
@@ -68,7 +112,7 @@ export function promptInstall () {
     notifyListeners();
     return promptEvent.prompt().then(() => promptEvent.userChoice).then(choiceResult => {
         if (choiceResult && choiceResult.outcome === 'accepted') {
-            isInstalled = true;
+            setInstalledFlag();
             notifyListeners();
             return 'accepted';
         }
