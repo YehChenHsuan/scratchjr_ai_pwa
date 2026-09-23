@@ -1,4 +1,4 @@
-self.__SCRATCHJR_PRECACHE_VERSION="b1e7bd8be6f639ad";
+self.__SCRATCHJR_PRECACHE_VERSION="3dda0a51ba9dc060";
 self.__SCRATCHJR_AI_VERSION="d1936e4930b42abf";
 self.__SCRATCHJR_CORE_URLS=[
   "./aitrainer.html",
@@ -699,7 +699,7 @@ self.__SCRATCHJR_CORE_URLS=[
 ];
 self.__SCRATCHJR_CORE_HASHES={
   "./aitrainer.html": "2cafb705dc41",
-  "./app.bundle.js": "b29e96bcd9d6",
+  "./app.bundle.js": "d5cc87b32753",
   "./assets/aitrainer/gesture-trainer-canva.webp": "92e576f3083d",
   "./assets/aitrainer/hand-one.svg": "164e292c8548",
   "./assets/aitrainer/hand-two.svg": "9c27f684128d",
@@ -1230,7 +1230,7 @@ self.__SCRATCHJR_CORE_HASHES={
   "./pop.mp3": "671e726405d1",
   "./samples/Star.txt": "7e8c299dd2d9",
   "./samples/star.png": "d46e97c1bb77",
-  "./service-worker.js": "606dec9d18ea",
+  "./service-worker.js": "778d8d888a75",
   "./settings.json": "717ab9b5712c",
   "./sounds/boing.wav": "6c30220a098b",
   "./sounds/copy.wav": "9e44730581c5",

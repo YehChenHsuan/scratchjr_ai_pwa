@@ -155,7 +155,41 @@ function quickHash (str) {
     return a + b + a + b;
 }
 
-const audioCtx = (typeof AudioContext !== 'undefined') ? new AudioContext() : null;
+let audioCtx = null;
+
+function getAudioCtx () {
+    if (!audioCtx && typeof AudioContext !== 'undefined') {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+            audioCtx = new AudioContextClass();
+        }
+    }
+    return audioCtx;
+}
+
+// 首次使用者互動時同步呼叫 resume() 以遵守瀏覽器 Autoplay 規範
+function resumeAudioCtxSync () {
+    const ctx = getAudioCtx();
+    if (ctx && (ctx.state === 'suspended' || ctx.state === 'interrupted')) {
+        ctx.resume();
+    }
+}
+
+if (typeof window !== 'undefined') {
+    const unlockEvents = ['pointerdown', 'touchstart', 'mousedown'];
+    const unlockHandler = () => {
+        resumeAudioCtxSync();
+        unlockEvents.forEach(evt => window.removeEventListener(evt, unlockHandler, true));
+    };
+    unlockEvents.forEach(evt => window.addEventListener(evt, unlockHandler, true));
+
+    // iPad Safari 切換至背景再返回時喚醒中斷的音訊上下文
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) {
+            resumeAudioCtxSync();
+        }
+    });
+}
 const soundBuffers = {};
 const playingNodes = {};
 
@@ -245,7 +279,8 @@ export default class Web {
 
     // ---- Sound ------------------------------------------------------------
     static registerSound (dir, name, fcn) {
-        if (!audioCtx) { cb(fcn, '0'); return; }
+        const ctx = getAudioCtx();
+        if (!ctx) { cb(fcn, '0'); return; }
         tx(STORE_MEDIA).then(store => p(store.get(name))).then(record => {
             if (record && record.data) return base64ToArrayBuffer(record.data);
             return fetch(getAssetURL(dir, name)).then(r => {
@@ -253,16 +288,18 @@ export default class Web {
                 return r.arrayBuffer();
             });
         })
-            .then(buf => audioCtx.decodeAudioData(buf))
+            .then(buf => ctx.decodeAudioData(buf))
             .then(a => { soundBuffers[name] = a; cb(fcn, '1'); })
             .catch(() => cb(fcn, '0'));
     }
     static playSound (name, fcn) {
         const buf = soundBuffers[name];
-        if (!buf || !audioCtx) { cb(fcn, '0'); return; }
-        const src = audioCtx.createBufferSource();
+        const ctx = getAudioCtx();
+        if (!buf || !ctx) { cb(fcn, '0'); return; }
+        resumeAudioCtxSync();
+        const src = ctx.createBufferSource();
         src.buffer = buf;
-        src.connect(audioCtx.destination);
+        src.connect(ctx.destination);
         src.onended = () => { delete playingNodes[name]; OS_soundDone(name); };
         src.start();
         playingNodes[name] = src;
