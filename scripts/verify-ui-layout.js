@@ -12,7 +12,10 @@ const REQUIRED = [
     '12-fixed-960x600.png',
     '13-fixed-1600x900.png',
     '14-trainer-fixed-960x600.png',
-    '15-portrait-rotate-prompt.png'
+    '15-portrait-rotate-prompt.png',
+    '16-settings-1280x720.png',
+    '17-settings-960x600.png',
+    '18-settings-1024x768.png'
 ];
 
 function scaleFor (width, height) {

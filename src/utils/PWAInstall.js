@@ -24,6 +24,14 @@ if (typeof window !== 'undefined') {
         isInstalled = true;
         notifyListeners();
     });
+
+    window.__PWAInstall = {
+        getDeferredPrompt: () => deferredPrompt,
+        setInstalled: val => {
+            isInstalled = val;
+            notifyListeners();
+        }
+    };
 }
 
 export function isStandalone () {

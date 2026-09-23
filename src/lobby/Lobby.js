@@ -237,7 +237,11 @@ export default class Lobby {
                 var installBtn = newHTML('button', 'pwa-large-btn', installContainer);
                 installBtn.textContent = Localization.localize('PWA_INSTALL_BUTTON');
                 installBtn.onclick = function () {
-                    ScratchAudio.sndFX('tap.wav');
+                    try {
+                        ScratchAudio.sndFX('tap.wav');
+                    } catch (e) {
+                        // ignore sound error
+                    }
                     promptInstall();
                 };
             } else if (state === 'ios') {
@@ -365,7 +369,11 @@ export default class Lobby {
                     var enableBtn = newHTML('button', 'pwa-action-btn-small', persistRight);
                     enableBtn.textContent = Localization.localize('PWA_ENABLE_PROTECTION_BUTTON');
                     enableBtn.onclick = function () {
-                        ScratchAudio.sndFX('tap.wav');
+                        try {
+                            ScratchAudio.sndFX('tap.wav');
+                        } catch (e) {
+                            // ignore sound error
+                        }
                         requestPersistentStorage().then(function () {
                             updateOfflineStatus();
                         });
