@@ -1,4 +1,4 @@
-self.__SCRATCHJR_PRECACHE_VERSION="cff44e687dbc456b";
+self.__SCRATCHJR_PRECACHE_VERSION="e600b0e67339f8f7";
 self.__SCRATCHJR_AI_VERSION="d1936e4930b42abf";
 self.__SCRATCHJR_CORE_URLS=[
   "./aitrainer.html",
@@ -698,7 +698,7 @@ self.__SCRATCHJR_CORE_URLS=[
 ];
 self.__SCRATCHJR_CORE_HASHES={
   "./aitrainer.html": "2cafb705dc41",
-  "./app.bundle.js": "edc815b8ab96",
+  "./app.bundle.js": "b361ad79be9f",
   "./assets/aitrainer/gesture-trainer-canva.webp": "92e576f3083d",
   "./assets/aitrainer/hand-one.svg": "164e292c8548",
   "./assets/aitrainer/hand-two.svg": "9c27f684128d",

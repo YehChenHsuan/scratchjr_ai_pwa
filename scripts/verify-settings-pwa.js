@@ -288,6 +288,136 @@ async function main() {
         }
 
         // ----------------------------------------------------
+        // 檢查 2.a: 設定頁顯示的 coreCached 一定小於或等於 coreTotal
+        // ----------------------------------------------------
+        console.log('\n- [2.a 檢查] 設定頁顯示的 coreCached 一定小於或等於 coreTotal...');
+        await page1.waitForFunction(() => {
+            const rows = document.querySelectorAll('.pwa-status-row');
+            for (const r of rows) {
+                const label = r.querySelector('.pwa-status-label');
+                if (label && (label.textContent.includes('基本資源') || label.textContent.includes('Basic Resources') || label.textContent.includes('Core'))) {
+                    const textEl = r.querySelector('.pwa-progress-text span:not(.pwa-check-icon)');
+                    return textEl && textEl.textContent.includes('/');
+                }
+            }
+            return false;
+        }, { timeout: 15000 });
+
+        const coreProgressInfo = await page1.evaluate(() => {
+            const rows = document.querySelectorAll('.pwa-status-row');
+            for (const r of rows) {
+                const label = r.querySelector('.pwa-status-label');
+                if (label && (label.textContent.includes('基本資源') || label.textContent.includes('Basic Resources') || label.textContent.includes('Core'))) {
+                    const countSpan = r.querySelector('.pwa-progress-text span:not(.pwa-check-icon)');
+                    const checkIcon = r.querySelector('.pwa-check-icon');
+                    const fillEl = r.querySelector('.pwa-progress-bar-fill');
+                    return {
+                        countText: countSpan ? countSpan.textContent.trim() : '',
+                        isCheckVisible: checkIcon && checkIcon.style.display !== 'none',
+                        isCompleteClass: fillEl && fillEl.classList.contains('complete')
+                    };
+                }
+            }
+            return null;
+        });
+        assert(coreProgressInfo, '應找到基本資源顯示項目');
+        console.log(`  基本資源顯示文字: "${coreProgressInfo.countText}"`);
+        const coreMatch = /(\d+)\s*\/\s*(\d+)/.exec(coreProgressInfo.countText);
+        assert(coreMatch, `基本資源顯示格式應為 "X / Y"，實際為: "${coreProgressInfo.countText}"`);
+        const coreCached = parseInt(coreMatch[1], 10);
+        const coreTotal = parseInt(coreMatch[2], 10);
+        console.log(`  coreCached: ${coreCached}, coreTotal: ${coreTotal}`);
+        assert(coreCached <= coreTotal, `設定頁顯示的 coreCached (${coreCached}) 一定小於或等於 coreTotal (${coreTotal})`);
+        console.log('  驗證通過: coreCached <= coreTotal');
+
+        // ----------------------------------------------------
+        // 檢查 2.b: 從 CORE_CACHE 刪掉一個清單內的檔案（例如 ./css/start.css）後重新查詢，基本資源不能顯示完成，數字要是 693 / 694
+        // ----------------------------------------------------
+        console.log('\n- [2.b 檢查] 從 CORE_CACHE 刪除 ./css/start.css 並重新查詢...');
+        const deleteResult = await page1.evaluate(async () => {
+            if (typeof caches === 'undefined') return { error: 'no caches' };
+            const keys = await caches.keys();
+            const coreKey = keys.find(k => k.startsWith('scratchjr-core-'));
+            if (!coreKey) return { error: 'core cache not found' };
+            const cache = await caches.open(coreKey);
+            const requests = await cache.keys();
+            const targetReq = requests.find(r => new URL(r.url).pathname.endsWith('/css/start.css'));
+            if (!targetReq) return { error: 'target file /css/start.css not found in cache' };
+            const success = await cache.delete(targetReq);
+            return {
+                success,
+                coreKey,
+                targetUrl: targetReq.url
+            };
+        });
+        console.log('  刪除檔案結果:', deleteResult);
+        assert(deleteResult.success, '應成功從 CORE_CACHE 刪除 ./css/start.css');
+
+        // 觸發重新查詢
+        console.log('  觸發重新查詢狀態 (updateOfflineStatus)...');
+        await page1.evaluate(async () => {
+            if (window.__updateOfflineStatus) {
+                await window.__updateOfflineStatus();
+            }
+        });
+
+        // 等待畫面更新至 693 / 694 (或 coreTotal - 1)
+        await page1.waitForFunction(expectedCount => {
+            const rows = document.querySelectorAll('.pwa-status-row');
+            for (const r of rows) {
+                const label = r.querySelector('.pwa-status-label');
+                if (label && (label.textContent.includes('基本資源') || label.textContent.includes('Basic Resources') || label.textContent.includes('Core'))) {
+                    const countSpan = r.querySelector('.pwa-progress-text span:not(.pwa-check-icon)');
+                    if (countSpan && countSpan.textContent.includes(expectedCount)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }, `${coreTotal - 1} / ${coreTotal}`, { timeout: 10000 });
+
+        const updatedCoreInfo = await page1.evaluate(() => {
+            const rows = document.querySelectorAll('.pwa-status-row');
+            for (const r of rows) {
+                const label = r.querySelector('.pwa-status-label');
+                if (label && (label.textContent.includes('基本資源') || label.textContent.includes('Basic Resources') || label.textContent.includes('Core'))) {
+                    const countSpan = r.querySelector('.pwa-progress-text span:not(.pwa-check-icon)');
+                    const checkIcon = r.querySelector('.pwa-check-icon');
+                    const fillEl = r.querySelector('.pwa-progress-bar-fill');
+                    return {
+                        countText: countSpan ? countSpan.textContent.trim() : '',
+                        isCheckVisible: checkIcon && checkIcon.style.display !== 'none',
+                        isCompleteClass: fillEl && fillEl.classList.contains('complete')
+                    };
+                }
+            }
+            return null;
+        });
+        console.log('  更新後基本資源狀態:', updatedCoreInfo);
+        assert(updatedCoreInfo, '應找到基本資源顯示項目');
+        assert.strictEqual(updatedCoreInfo.countText, '693 / 694', `基本資源數字要是 693 / 694，實際為: "${updatedCoreInfo.countText}"`);
+        assert.strictEqual(updatedCoreInfo.isCheckVisible, false, '未完全快取時不能顯示完成打勾圖示 (✓)');
+        assert.strictEqual(updatedCoreInfo.isCompleteClass, false, '進度條 fill 不能有 complete 類別');
+        console.log('  驗證通過: 基本資源不能顯示完成，數字為 693 / 694');
+
+        // 復原刪除的快取檔案，維持測試環境完整
+        console.log('  復原快取項目 ./css/start.css ...');
+        await page1.evaluate(async (delInfo) => {
+            if (!delInfo || !delInfo.coreKey || !delInfo.targetUrl) return;
+            const cache = await caches.open(delInfo.coreKey);
+            try {
+                const res = await fetch(delInfo.targetUrl);
+                if (res.ok) {
+                    await cache.put(delInfo.targetUrl, res);
+                }
+            } catch (e) {}
+            if (window.__updateOfflineStatus) {
+                await window.__updateOfflineStatus();
+            }
+        }, deleteResult);
+        await sleep(500);
+
+        // ----------------------------------------------------
         // 驗證輪詢期間按鈕 DOM 節點同一性 (===)
         // ----------------------------------------------------
         console.log('- 驗證輪詢期間按鈕 DOM 節點同一性 (===)...');

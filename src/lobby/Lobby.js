@@ -391,10 +391,10 @@ export default class Lobby {
 
         var updateOfflineStatus = function () {
             if (isUpdatingStatus) {
-                return;
+                return Promise.resolve();
             }
             isUpdatingStatus = true;
-            getOfflineStatus().then(function (status) {
+            return getOfflineStatus().then(function (status) {
                 isUpdatingStatus = false;
                 if (currentPage !== 'gear') {
                     return;
@@ -475,6 +475,9 @@ export default class Lobby {
         };
 
         updateOfflineStatus();
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+            window.__updateOfflineStatus = updateOfflineStatus;
+        }
 
         pollTimer = setInterval(function () {
             if (currentPage === 'gear') {
@@ -493,6 +496,9 @@ export default class Lobby {
             if (pollTimer) {
                 clearInterval(pollTimer);
                 pollTimer = null;
+            }
+            if (window.__updateOfflineStatus) {
+                delete window.__updateOfflineStatus;
             }
         };
     }

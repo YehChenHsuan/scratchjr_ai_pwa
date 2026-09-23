@@ -1,5 +1,5 @@
-/* global self, caches, fetch, Response */
-// SW Build Version: 2026-09-23T08:55:54.815Z
+/* global self, caches, fetch, Response, URL, Set, importScripts */
+// SW Build Version: 2026-09-23T13:04:59.220Z
 importScripts('./precache-manifest.js');
 
 const CACHE_PREFIX = 'scratchjr-';
@@ -183,9 +183,57 @@ function notifyClients (message) {
     });
 }
 
+/**
+ * 依目標 URL 清單與快取名稱清單，計算已快取的 URL 數量（比對 pathname 於 Set 中，避免重覆與非清單資源膨脹）
+ */
+async function getCachedUrlsCount (targetUrls, cacheNames) {
+    const scope = (self.registration && self.registration.scope) || self.location.origin;
+    const pathSet = new Set();
+    for (const name of cacheNames) {
+        try {
+            const cache = await caches.open(name);
+            const requests = await cache.keys();
+            for (const req of requests) {
+                try {
+                    pathSet.add(new URL(req.url).pathname);
+                } catch (e) {
+                    // 忽略無效 URL
+                }
+            }
+        } catch (e) {
+            // 忽略不存在或無法開啟的快取
+        }
+    }
+    let count = 0;
+    for (const u of targetUrls) {
+        try {
+            const targetPath = new URL(u, scope).pathname;
+            if (pathSet.has(targetPath)) {
+                count++;
+            }
+        } catch (e) {
+            // 忽略無效 URL
+        }
+    }
+    return count;
+}
+
+async function countCoreCached () {
+    return getCachedUrlsCount(CORE_URLS, [CORE_CACHE, MEDIA_CACHE]);
+}
+
+async function countAiCached () {
+    const allKeys = await caches.keys();
+    const aiCaches = allKeys.filter(k => k.indexOf(CACHE_PREFIX + 'ai-') === 0);
+    if (aiCaches.indexOf(AI_CACHE) === -1) {
+        aiCaches.push(AI_CACHE);
+    }
+    return getCachedUrlsCount(AI_URLS, aiCaches);
+}
+
 function cacheAI () {
-    return caches.open(AI_CACHE).then(cache => cache.keys().then(keys => {
-        if (keys.length >= AI_URLS.length) return null;
+    return countAiCached().then(aiCached => {
+        if (aiCached >= AI_URLS.length) return null;
         return cacheFiles(AI_CACHE, AI_URLS, AI_HASHES, (completed, total) => {
             if (completed === total || completed % 5 === 0) {
                 notifyClients({type: 'AI_CACHE_PROGRESS', completed, total});
@@ -194,7 +242,7 @@ function cacheAI () {
             const failed = results.filter(item => !item.ok).length;
             return notifyClients({type: 'AI_CACHE_COMPLETE', total: results.length, failed});
         });
-    }));
+    });
 }
 
 self.addEventListener('message', event => {
@@ -203,8 +251,8 @@ self.addEventListener('message', event => {
         event.waitUntil(cacheAI());
     } else if (event.data.type === 'GET_CACHE_STATUS') {
         event.waitUntil(Promise.all([
-            caches.open(CORE_CACHE).then(cache => cache.keys()).then(keys => keys.length),
-            caches.open(AI_CACHE).then(cache => cache.keys()).then(keys => keys.length)
+            countCoreCached(),
+            countAiCached()
         ]).then(([coreCached, aiCached]) => {
             const message = {
                 type: 'CACHE_STATUS',
