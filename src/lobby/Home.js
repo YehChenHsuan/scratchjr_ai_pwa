@@ -290,16 +290,56 @@ export default class Home {
         }
     }
 
+    static showImportToast (message) {
+        var existing = document.querySelector('.import-toast');
+        if (existing && existing.parentNode) {
+            existing.parentNode.removeChild(existing);
+        }
+        var toast = document.createElement('div');
+        toast.className = 'import-toast';
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(function () {
+            toast.style.opacity = '0';
+            setTimeout(function () {
+                if (toast.parentNode) {
+                    toast.parentNode.removeChild(toast);
+                }
+            }, 300);
+        }, 3500);
+    }
+
     static importProject () {
+        if (Home.isImporting) return;
+
+        var importThumb = gn('importproject');
+        var importIcon = importThumb ? importThumb.querySelector('.aproject.importproject') : null;
+
+        var setImporting = function (state) {
+            Home.isImporting = state;
+            if (importIcon) {
+                if (state) {
+                    importIcon.classList.add('importing');
+                } else {
+                    importIcon.classList.remove('importing');
+                }
+            }
+        };
+
         var picker = document.createElement('input');
         picker.type = 'file';
-        picker.accept = '.sjr,.zip,application/zip';
+        picker.accept = '';
         picker.onchange = function () {
             var file = picker.files && picker.files[0];
             if (!file) return;
+
+            setImporting(true);
             OS.importProjectArchive(file, function (projectId) {
+                setImporting(false);
                 if (projectId) {
                     Home.displayYourProjects();
+                } else {
+                    Home.showImportToast(Localization.localize('IMPORT_FAILED'));
                 }
             });
         };

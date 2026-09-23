@@ -399,5 +399,6 @@
     "PWA_STORAGE_USED": "已使用空間",
     "PWA_INSTALLED_BROWSER": "✓ 已安裝，請從桌面或主畫面的 ScratchJr AI 圖示開啟，才能離線使用",
     "PWA_CHROMIUM_MANUAL": "點網址列右側的安裝圖示，或從瀏覽器選單選『安裝 ScratchJr AI』",
-    "PWA_PROTECTION_DENIED_HINT": "瀏覽器暫未同意，安裝成 App 後通常會自動啟用"
+    "PWA_PROTECTION_DENIED_HINT": "瀏覽器暫未同意，安裝成 App 後通常會自動啟用",
+    "IMPORT_FAILED": "這個檔案不是 ScratchJr 作品，或檔案已損壞"
 }
