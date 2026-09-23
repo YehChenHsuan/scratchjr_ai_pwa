@@ -520,3 +520,231 @@ div.localizationselect.selected:after {
     font-size: ${18 * scaleMultiplier}px;
     font-weight: bold;
 }
+
+/* Settings PWA & Offline Sections */
+.pwa-settings-section {
+    clear: both;
+    width: 90%;
+    margin: ${css_vh(3.5)} auto 0;
+    padding-bottom: ${css_vh(4)};
+    box-sizing: border-box;
+}
+
+.pwa-section-title {
+    font-family: Roboto;
+    font-size: ${css_vh(4.2)};
+    color: #f5a322;
+    text-align: center;
+    margin: ${css_vh(2.5)} 0 ${css_vh(1.8)};
+}
+
+.pwa-install-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin: 0 auto;
+}
+
+.pwa-large-btn {
+    border: none;
+    outline: none;
+    cursor: pointer;
+    border-radius: 18px;
+    min-width: ${css_vw(32)};
+    padding: ${css_vh(1.8)} ${css_vw(4)};
+    background-color: #35A8E0;
+    color: #fff;
+    font-family: Roboto;
+    font-size: 26px;
+    font-weight: bold;
+    text-align: center;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.15);
+    background-image: linear-gradient(0deg, rgba(255,255,255,0) 0%, rgba(255,255,255,0) 50%, rgba(255,255,255,0.2) 51%);
+    transition: transform 0.1s ease, background-color 0.2s ease;
+}
+
+.pwa-large-btn:active {
+    transform: scale(0.97);
+}
+
+.pwa-status-pill {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 18px;
+    padding: ${css_vh(1.5)} ${css_vw(4)};
+    font-family: Roboto;
+    font-size: 24px;
+    font-weight: bold;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+}
+
+.pwa-status-pill.installed {
+    background-color: #4CAF50;
+    color: #fff;
+}
+
+.pwa-status-pill.unsupported {
+    background-color: #f0ede1;
+    color: #7a6e5b;
+    border: 2px dashed #d1c7b2;
+    font-size: 20px;
+}
+
+/* iOS 3-Step Guide */
+.pwa-ios-guide {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+    max-width: ${css_vw(75)};
+    background: #ffffff;
+    border-radius: 20px;
+    padding: ${css_vh(2.5)} ${css_vw(3)};
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    box-sizing: border-box;
+}
+
+.pwa-ios-steps {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: center;
+    width: 100%;
+    margin-bottom: ${css_vh(2)};
+    gap: 12px;
+}
+
+.pwa-ios-step {
+    display: flex;
+    align-items: center;
+    font-family: Roboto;
+    font-size: 19px;
+    color: #333;
+    font-weight: bold;
+}
+
+.pwa-ios-share-icon {
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0 4px;
+    color: #007AFF;
+    width: 24px;
+    height: 24px;
+}
+
+.pwa-ios-warning {
+    display: flex;
+    align-items: center;
+    background-color: #fff9e6;
+    border: 2px solid #f5a322;
+    border-radius: 14px;
+    padding: ${css_vh(1.5)} ${css_vw(2)};
+    color: #7c4a00;
+    font-family: Roboto;
+    font-size: 16px;
+    line-height: 1.4;
+    text-align: left;
+    margin-top: ${css_vh(1)};
+}
+
+/* Offline Status Card */
+.pwa-offline-card {
+    display: flex;
+    flex-direction: column;
+    gap: ${css_vh(1.8)};
+    width: 100%;
+    max-width: ${css_vw(75)};
+    margin: 0 auto;
+    background: #ffffff;
+    border-radius: 20px;
+    padding: ${css_vh(2.5)} ${css_vw(3.5)};
+    box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    box-sizing: border-box;
+}
+
+.pwa-status-row {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    font-family: Roboto;
+    font-size: 19px;
+    color: #444;
+}
+
+.pwa-status-label {
+    font-weight: bold;
+    min-width: ${css_vw(14)};
+}
+
+.pwa-progress-wrap {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0 16px;
+}
+
+.pwa-progress-bar-bg {
+    flex: 1;
+    height: 16px;
+    background-color: #eee9dc;
+    border-radius: 10px;
+    overflow: hidden;
+    position: relative;
+}
+
+.pwa-progress-bar-fill {
+    height: 100%;
+    background-color: #35A8E0;
+    border-radius: 10px;
+    transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.pwa-progress-bar-fill.complete {
+    background-color: #4CAF50;
+}
+
+.pwa-progress-text {
+    font-size: 16px;
+    color: #666;
+    min-width: 65px;
+    text-align: right;
+}
+
+.pwa-check-icon {
+    color: #4CAF50;
+    font-weight: bold;
+    font-size: 20px;
+    margin-left: 4px;
+}
+
+.pwa-action-btn-small {
+    border: none;
+    border-radius: 12px;
+    padding: 6px 14px;
+    background-color: #F9A737;
+    color: #fff;
+    font-family: Roboto;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+    transition: transform 0.1s ease;
+}
+
+.pwa-action-btn-small:active {
+    transform: scale(0.96);
+}
+
+.pwa-status-preparing {
+    text-align: center;
+    color: #887b68;
+    font-family: Roboto;
+    font-size: 18px;
+    padding: ${css_vh(1.5)} 0;
+}
+
