@@ -1,15 +1,17 @@
 #!/usr/bin/env node
-// Build script that runs webpack and then copies static assets into ./docs/
-// for GitHub Pages deployment.
+// Build script that runs webpack and then copies optimized static assets into ./docs/
+// for Cloudflare Workers deployment.
 
 const {execSync} = require('child_process');
 const fs = require('fs');
 const path = require('path');
+const {copyAndOptimize} = require('./pwa-optimizer');
 
 const ROOT = path.resolve(__dirname, '..');
 const OUT = path.join(ROOT, 'docs');
 const FREE_SRC = path.join(ROOT, 'editions', 'free', 'src');
 const BUNDLE = path.join(ROOT, 'src', 'build', 'bundles', 'app.bundle.js');
+
 function rimraf (p) {
     if (!fs.existsSync(p)) return;
     for (const f of fs.readdirSync(p)) {
@@ -18,44 +20,39 @@ function rimraf (p) {
         else fs.unlinkSync(fp);
     }
 }
-function copyDir (src, dst) {
-    if (!fs.existsSync(src)) return;
-    if (!fs.existsSync(dst)) fs.mkdirSync(dst, {recursive: true});
-    for (const f of fs.readdirSync(src)) {
-        const sp = path.join(src, f);
-        const dp = path.join(dst, f);
-        const st = fs.statSync(sp);
-        if (st.isDirectory()) copyDir(sp, dp);
-        else fs.copyFileSync(sp, dp);
+
+(async () => {
+    console.log('==> webpack production build');
+    execSync('npx webpack --mode=production', {
+        cwd: ROOT,
+        stdio: 'inherit',
+        env: Object.assign({}, process.env, {NODE_OPTIONS: '--openssl-legacy-provider'})
+    });
+
+    console.log('==> sync bundle to source');
+    if (fs.existsSync(BUNDLE)) {
+        fs.copyFileSync(BUNDLE, path.join(FREE_SRC, 'app.bundle.js'));
     }
-}
 
-console.log('==> webpack production build');
-execSync('npx webpack --mode=production', {
-    cwd: ROOT,
-    stdio: 'inherit',
-    env: Object.assign({}, process.env, {NODE_OPTIONS: '--openssl-legacy-provider'})
-});
+    console.log('==> reset', OUT);
+    rimraf(OUT);
+    fs.mkdirSync(OUT, {recursive: true});
 
-console.log('==> sync bundle and generate precache manifest');
-if (fs.existsSync(BUNDLE)) {
-    fs.copyFileSync(BUNDLE, path.join(FREE_SRC, 'app.bundle.js'));
-}
-execSync('node scripts/generate-precache.js', {cwd: ROOT, stdio: 'inherit'});
+    console.log('==> optimize and copy editions/free/src -> docs/');
+    const {stats} = await copyAndOptimize(FREE_SRC, OUT);
+    console.log(`==> optimization stats: saved ${(stats.pngSavedBytes / 1024).toFixed(1)} KB (PNG), ${(stats.svgSavedBytes / 1024).toFixed(1)} KB (SVG)`);
 
-console.log('==> reset', OUT);
-rimraf(OUT);
-fs.mkdirSync(OUT, {recursive: true});
+    console.log('==> copy bundle -> docs/app.bundle.js');
+    if (fs.existsSync(BUNDLE)) {
+        fs.copyFileSync(BUNDLE, path.join(OUT, 'app.bundle.js'));
+    }
 
-console.log('==> copy editions/free/src -> docs/');
-copyDir(FREE_SRC, OUT);
+    // 依據 docs/ 最終產物生成 precache-manifest.js
+    console.log('==> generate precache manifest for deployment');
+    execSync(`node scripts/generate-precache.js "${OUT}"`, {cwd: ROOT, stdio: 'inherit'});
 
-console.log('==> copy bundle -> docs/app.bundle.js');
-if (fs.existsSync(BUNDLE)) {
-    fs.copyFileSync(BUNDLE, path.join(OUT, 'app.bundle.js'));
-}
+    // 支援非 Jekyll 靜態託管（維持原功能）
+    fs.writeFileSync(path.join(OUT, '.nojekyll'), '');
 
-// GitHub Pages friendliness: disable Jekyll which strips _underscored paths.
-fs.writeFileSync(path.join(OUT, '.nojekyll'), '');
-
-console.log('==> done. Deploy ./docs/ via GitHub Pages (Settings -> Pages -> Branch: main /docs).');
+    console.log('==> done. Ready for Cloudflare deployment (wrangler deploy).');
+})();

@@ -4,6 +4,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const {isEngineParsedSvg, UNUSED_RUNTIME_FILES, isExcluded} = require('./pwa-optimizer');
 
 const ROOT = path.resolve(__dirname, '..');
 const SOURCE = path.join(ROOT, 'editions', 'free', 'src');
@@ -27,7 +28,7 @@ assert.strictEqual(manifest.lang, 'zh-TW');
 assert(manifest.description.indexOf('ScratchJr') > -1 && manifest.description.indexOf('AI') > -1);
 
 const context = {self: {}};
-vm.runInNewContext(read(SOURCE, 'precache-manifest.js').toString('utf8'), context);
+vm.runInNewContext(read(DEPLOY, 'precache-manifest.js').toString('utf8'), context);
 const core = context.self.__SCRATCHJR_CORE_URLS;
 const ai = context.self.__SCRATCHJR_AI_URLS;
 assert(Array.isArray(core) && core.length > 0, 'Core precache list is empty');
@@ -37,12 +38,25 @@ assert(Array.isArray(ai) && ai.length > 0, 'AI precache list is empty');
 });
 assert(ai.every(file => file.indexOf('./vendor/ai/') === 0), 'Non-AI file found in AI cache list');
 
+const isOptimizable = (relative) => {
+    const ext = path.extname(relative).toLowerCase();
+    return ext === '.png' || (ext === '.svg' && !isEngineParsedSvg(relative));
+};
+
 const sourceFiles = [];
 collect(SOURCE, SOURCE, sourceFiles);
-const mismatches = sourceFiles.filter(relative => !relative.endsWith('.map')).filter(relative => {
-    const deployPath = path.join(DEPLOY, relative);
-    return !fs.existsSync(deployPath) || !read(SOURCE, relative).equals(read(DEPLOY, relative));
-});
+const mismatches = sourceFiles
+    .filter(relative => !isExcluded(path.basename(relative), relative) && relative !== 'precache-manifest.js')
+    .filter(relative => {
+        const deployPath = path.join(DEPLOY, relative);
+        if (!fs.existsSync(deployPath)) return true;
+        if (isOptimizable(relative)) {
+            const sSize = fs.statSync(path.join(SOURCE, relative)).size;
+            const dSize = fs.statSync(deployPath).size;
+            return dSize === 0 || dSize > sSize;
+        }
+        return !read(SOURCE, relative).equals(read(DEPLOY, relative));
+    });
 assert.deepStrictEqual(mismatches, [], `Deployment output differs from source:\n${mismatches.join('\n')}`);
 
 const fixedViewport = fs.readFileSync(path.join(ROOT, 'src', 'utils', 'FixedViewport.js'), 'utf8');

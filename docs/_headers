@@ -1,6 +1,0 @@
-/service-worker.js
-  Cache-Control: no-cache
-/precache-manifest.js
-  Cache-Control: no-cache
-/*.webmanifest
-  Content-Type: application/manifest+json
