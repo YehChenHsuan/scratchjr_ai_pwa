@@ -24,7 +24,7 @@ body {
     width: min(100vw, calc(100vh * 16 / 9));
     aspect-ratio: 16 / 9;
     max-height: 100vh;
-    background: url("../assets/aitrainer/gesture-trainer-canva.svg") center center / 100% 100% no-repeat;
+    background: url("../assets/aitrainer/gesture-trainer-canva.webp") center center / 100% 100% no-repeat;
     overflow: hidden;
 }
 

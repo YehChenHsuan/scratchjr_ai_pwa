@@ -10,7 +10,7 @@ const FREE_SRC = path.join(ROOT, 'editions', 'free', 'src');
 const targetArg = process.argv[2] ? path.resolve(process.argv[2]) : null;
 const TARGET_DIR = targetArg || (fs.existsSync(path.join(ROOT, 'docs')) ? path.join(ROOT, 'docs') : FREE_SRC);
 const OUTPUT = path.join(TARGET_DIR, 'precache-manifest.js');
-const EXCLUDED = new Set(['precache-manifest.js', 'app.bundle.js.map', '_headers', '.nojekyll']);
+const EXCLUDED = new Set(['precache-manifest.js', 'app.bundle.js.map', '_headers', '.nojekyll', 'assets/lobby/intro.mp4']);
 
 function collect (directory, base, result) {
     fs.readdirSync(directory).sort().forEach(name => {

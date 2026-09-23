@@ -1,4 +1,4 @@
-import {gn, isiOS, getUrlVars} from '../utils/lib';
+import {gn, isAndroid, getUrlVars} from '../utils/lib';
 
 let place;
 
@@ -12,15 +12,19 @@ export function gettingStartedMain () {
     image.onload = function () {
         videoObj.style.display = 'block';
     };
-    if (isiOS) {
-        // On iOS we can load from server
-        videoObj.src = 'assets/lobby/intro.mp4';
-    } else {
+    videoObj.onerror = function () {
+        // 優雅降級：若離線且未快取影片，提示點擊關閉按鈕返回
+        console.warn('[gettingStarted] Video failed to load (offline or un-cached).');
+    };
+    if (isAndroid) {
         // On Android we need to copy to a temporary directory first:
         setTimeout(function () {
             videoObj.type = 'video/mp4';
             videoObj.src = AndroidInterface.scratchjr_getgettingstartedvideopath();
         }, 1000);
+    } else {
+        // On iOS or Web we load from server / PWA cache
+        videoObj.src = 'assets/lobby/intro.mp4';
     }
     var urlvars = getUrlVars();
     place = urlvars['place'];
