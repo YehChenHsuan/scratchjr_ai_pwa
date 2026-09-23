@@ -24,7 +24,7 @@ div.frame {
     width: 468px;
     height: 300px;
     z-index: 10;
-    background: url('../assets/start/Cat.svg') center / contain no-repeat;
+    background: url('../assets/start/cat.webp') center / contain no-repeat;
 }
 
 *.credits {
