@@ -17,8 +17,8 @@
     "release:pwa": "npm run test:pwa && npm run package:pwa",
     "build:web": "npm run sync:ai && npm run icons:pwa && node scripts/build-web.js",
     "serve": "node scripts/serve.js",
-    "deploy": "wrangler deploy",
-    "preview": "wrangler dev"
+    "deploy": "npx wrangler deploy",
+    "preview": "npx wrangler dev"
   },
   "author": "Massachusetts Institute of Technology",
   "license": "BSD-3-Clause",

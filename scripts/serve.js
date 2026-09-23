@@ -15,7 +15,8 @@ const PORT = process.env.PORT || 8080;
 const MIME = {
     '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
     '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
-    '.jpg': 'image/jpeg', '.gif': 'image/gif', '.wav': 'audio/wav', '.mp3': 'audio/mpeg',
+    '.jpg': 'image/jpeg', '.gif': 'image/gif', '.webp': 'image/webp',
+    '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.mp4': 'video/mp4',
     '.map': 'application/json'
 };
 
