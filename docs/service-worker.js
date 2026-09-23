@@ -1,48 +1,136 @@
-﻿/* global self, caches, fetch, Response */
+/* global self, caches, fetch, Response */
+// SW Build Version: 2026-09-23T02:28:36.886Z
 importScripts('./precache-manifest.js');
 
 const CACHE_PREFIX = 'scratchjr-';
 const CORE_CACHE = CACHE_PREFIX + 'core-' + self.__SCRATCHJR_PRECACHE_VERSION;
-const AI_CACHE = CACHE_PREFIX + 'ai-' + self.__SCRATCHJR_PRECACHE_VERSION;
+// AI 模型檔案獨立版本號，防止核心檔案更新時刪除 24MB 模型快取
+const AI_CACHE = CACHE_PREFIX + 'ai-' + (self.__SCRATCHJR_AI_VERSION || self.__SCRATCHJR_PRECACHE_VERSION);
+const MEDIA_CACHE = 'scratchjr-media';
+
 const CORE_URLS = self.__SCRATCHJR_CORE_URLS || [];
 const AI_URLS = self.__SCRATCHJR_AI_URLS || [];
+const CORE_HASHES = self.__SCRATCHJR_CORE_HASHES || {};
+const AI_HASHES = self.__SCRATCHJR_AI_HASHES || {};
+
 const CRITICAL_URLS = ['./index.html', './home.html', './editor.html', './app.bundle.js', './settings.json'];
 
-function cleanResponse (response) {
-    if (!response || !response.ok) return Promise.resolve(response);
-    return response.blob().then(body => new Response(body, {
-        status: 200,
-        headers: {'Content-Type': response.headers.get('Content-Type') || 'application/octet-stream'}
-    }));
+// intro.mp4 背景完整下載去重 Promise
+let introDownloadPromise = null;
+function ensureIntroCached (url) {
+    if (introDownloadPromise) return introDownloadPromise;
+    introDownloadPromise = (async () => {
+        try {
+            const mediaCache = await caches.open(MEDIA_CACHE);
+            const cached = await mediaCache.match(url);
+            if (cached) return;
+            // 發起無 Range 標頭的完整 GET 請求以取得完整 200 回應
+            const response = await fetch(url, {credentials: 'same-origin', cache: 'no-store'});
+            if (response && response.status === 200) {
+                const clean = await cleanResponse(response);
+                await mediaCache.put(url, clean);
+            }
+        } catch (err) {
+            // 背景快取失敗時靜默忽略，不中斷當前播放
+        } finally {
+            introDownloadPromise = null;
+        }
+    })();
+    return introDownloadPromise;
 }
 
-function cacheFiles (cacheName, urls, notify) {
-    return caches.open(cacheName).then(cache => {
+/**
+ * 淨化 Response 並保留/注入必要的自訂標頭（如 X-SJR-Hash 用於增量快取比對）
+ */
+function cleanResponse (response, extraHeaders = {}) {
+    if (!response || !response.ok) return Promise.resolve(response);
+    return response.blob().then(body => {
+        const headers = {
+            'Content-Type': response.headers.get('Content-Type') || 'application/octet-stream',
+            ...extraHeaders
+        };
+        // 若原始回應已有 X-SJR-Hash 且未指定新的，則予以保留
+        if (!headers['X-SJR-Hash'] && response.headers.get('X-SJR-Hash')) {
+            headers['X-SJR-Hash'] = response.headers.get('X-SJR-Hash');
+        }
+        return new Response(body, {
+            status: 200,
+            headers
+        });
+    });
+}
+
+/**
+ * 增量快取檔案清單：
+ * 1. 先檢驗舊快取（scratchjr-core-* / scratchjr-ai-*），若存在同 URL 且 X-SJR-Hash 相同，直接複製，免去網路頻寬
+ * 2. 僅對新增或 Hash 異動的檔案發起 fetch
+ * 3. 進度通知同時計算複製與下載的項目，保持進度條平滑
+ */
+function cacheFiles (cacheName, urls, hashes, notify) {
+    return caches.open(cacheName).then(async cache => {
+        const prefix = cacheName.indexOf(CACHE_PREFIX + 'core-') === 0 ? 'core-' : 'ai-';
+        const allKeys = await caches.keys();
+        const oldCacheNames = allKeys.filter(k => k.indexOf(CACHE_PREFIX + prefix) === 0 && k !== cacheName);
+        const oldCaches = await Promise.all(oldCacheNames.map(k => caches.open(k)));
+
         let completed = 0;
         let next = 0;
         const results = [];
-        const worker = () => {
+
+        const worker = async () => {
             const index = next++;
-            if (index >= urls.length) return Promise.resolve();
+            if (index >= urls.length) return;
             const url = urls[index];
-            return fetch(url, {credentials: 'same-origin', cache: 'no-store'}).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return cleanResponse(r); }).then(clean => cache.put(url, clean)).then(() => ({url, ok: true}))
-                .catch(error => ({url, ok: false, error}))
-                .then(result => {
-                    results[index] = result;
-                    completed++;
-                    if (notify) notify(completed, urls.length);
-                    return worker();
-                });
+            const expectedHash = hashes ? hashes[url] : null;
+
+            try {
+                let matchedResponse = null;
+                // 從舊快取尋找內容一致的項目
+                if (expectedHash && oldCaches.length > 0) {
+                    for (const oldCache of oldCaches) {
+                        const cached = await oldCache.match(url, {ignoreSearch: true, ignoreVary: true});
+                        if (cached) {
+                            const cachedHash = cached.headers.get('X-SJR-Hash');
+                            if (cachedHash && cachedHash === expectedHash) {
+                                matchedResponse = cached;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (matchedResponse) {
+                    // 直接重用既有快取
+                    await cache.put(url, matchedResponse.clone());
+                    results[index] = {url, ok: true, reused: true};
+                } else {
+                    // 發起網路下載
+                    const r = await fetch(url, {credentials: 'same-origin', cache: 'no-store'});
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    const extraHeaders = expectedHash ? {'X-SJR-Hash': expectedHash} : {};
+                    const clean = await cleanResponse(r, extraHeaders);
+                    await cache.put(url, clean);
+                    results[index] = {url, ok: true, reused: false};
+                }
+            } catch (error) {
+                results[index] = {url, ok: false, error};
+            }
+
+            completed++;
+            if (notify) notify(completed, urls.length);
+            return worker();
         };
+
         const workers = [];
-        const concurrency = Math.min(3, urls.length);
+        const concurrency = Math.min(4, urls.length);
         for (let i = 0; i < concurrency; i++) workers.push(worker());
-        return Promise.all(workers).then(() => results);
+        await Promise.all(workers);
+        return results;
     });
 }
 
 self.addEventListener('install', event => {
-    event.waitUntil(cacheFiles(CORE_CACHE, CORE_URLS, (completed, total) => {
+    event.waitUntil(cacheFiles(CORE_CACHE, CORE_URLS, CORE_HASHES, (completed, total) => {
         if (completed === total || completed % 5 === 0) {
             notifyClients({type: 'CORE_CACHE_PROGRESS', completed, total});
         }
@@ -57,17 +145,27 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-    event.waitUntil(caches.keys().then(keys => Promise.all(keys
-        .filter(key => key.indexOf(CACHE_PREFIX) === 0 && key !== CORE_CACHE && key !== AI_CACHE)
-        .map(key => caches.delete(key))))
-        .then(() => self.clients.claim()));
+    // 保留當前 CORE_CACHE、AI_CACHE 與固定名稱 MEDIA_CACHE
+    // 另外：如果新的 AI_CACHE 尚未填滿（未包含全部 AI 資源），保留舊的 AI 快取避免離線失效
+    event.waitUntil((async () => {
+        const keys = await caches.keys();
+        const currentAiCache = await caches.open(AI_CACHE);
+        const currentAiCount = (await currentAiCache.keys()).length;
+
+        await Promise.all(keys
+            .filter(key => {
+                if (key.indexOf(CACHE_PREFIX) !== 0) return false;
+                if (key === CORE_CACHE || key === AI_CACHE || key === MEDIA_CACHE) return false;
+                // 若新 AI 快取未完成下載，暫不清除舊 AI 模型快取
+                if (key.indexOf(CACHE_PREFIX + 'ai-') === 0 && currentAiCount < AI_URLS.length) return false;
+                return true;
+            })
+            .map(key => caches.delete(key))
+        );
+        return self.clients.claim();
+    })());
 });
 
-// App code (HTML shell, JS bundle and stylesheets) must always be fetched
-// from the network first so a rebuilt app.bundle.js or an updated CSS file is
-// picked up immediately - falling back to cache only when offline. Everything
-// else (images, sounds, etc.) is safe to serve cache-first since those assets
-// don't change without also changing their filename/md5.
 function isAppCode (url) {
     return url.pathname.endsWith('.html') || url.pathname.endsWith('.css') ||
         url.pathname.endsWith('/app.bundle.js') || url.pathname.endsWith('/') ||
@@ -83,7 +181,7 @@ function notifyClients (message) {
 function cacheAI () {
     return caches.open(AI_CACHE).then(cache => cache.keys().then(keys => {
         if (keys.length >= AI_URLS.length) return null;
-        return cacheFiles(AI_CACHE, AI_URLS, (completed, total) => {
+        return cacheFiles(AI_CACHE, AI_URLS, AI_HASHES, (completed, total) => {
             if (completed === total || completed % 5 === 0) {
                 notifyClients({type: 'AI_CACHE_PROGRESS', completed, total});
             }
@@ -125,7 +223,13 @@ self.addEventListener('fetch', event => {
     const range = request.headers.get('range');
     if (range) {
         event.respondWith(caches.match(request.url, {ignoreSearch: true, ignoreVary: true}).then(cached => {
-            if (!cached) return fetch(request);
+            if (!cached) {
+                // 若為 intro.mp4 影片且尚未快取，在背景發起無 Range 完整快取（去重），同時本次請求放行即時播放
+                if (url.pathname.indexOf('intro.mp4') > -1) {
+                    event.waitUntil(ensureIntroCached(request.url));
+                }
+                return fetch(request);
+            }
             const match = /^bytes=(\d+)-(\d*)$/.exec(range);
             if (!match) return cached;
             return cached.blob().then(blob => {

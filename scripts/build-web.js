@@ -51,6 +51,20 @@ function rimraf (p) {
     console.log('==> generate precache manifest for deployment');
     execSync(`node scripts/generate-precache.js "${OUT}"`, {cwd: ROOT, stdio: 'inherit'});
 
+    // 注入 SW Build 版本標籤，確保 service-worker.js 本身發生位元組改變以觸發所有瀏覽器（特別是 Safari）的 SW 更新流程
+    const swPath = path.join(OUT, 'service-worker.js');
+    if (fs.existsSync(swPath)) {
+        let swContent = fs.readFileSync(swPath, 'utf8');
+        const stamp = new Date().toISOString();
+        if (swContent.indexOf('// SW Build Version:') > -1) {
+            swContent = swContent.replace(/\/\/ SW Build Version: [^\n]+/, `// SW Build Version: ${stamp}`);
+        } else {
+            swContent = `// SW Build Version: ${stamp}\n` + swContent;
+        }
+        fs.writeFileSync(swPath, swContent);
+        fs.writeFileSync(path.join(FREE_SRC, 'service-worker.js'), swContent);
+    }
+
     // 支援非 Jekyll 靜態託管（維持原功能）
     fs.writeFileSync(path.join(OUT, '.nojekyll'), '');
 

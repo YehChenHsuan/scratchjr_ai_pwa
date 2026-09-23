@@ -7,7 +7,6 @@ const {UNUSED_RUNTIME_FILES} = require('./pwa-optimizer');
 
 const ROOT = path.resolve(__dirname, '..');
 const FREE_SRC = path.join(ROOT, 'editions', 'free', 'src');
-// 優先使用命令列指定的目標，若無則依序檢查 docs/ 或 editions/free/src
 const targetArg = process.argv[2] ? path.resolve(process.argv[2]) : null;
 const TARGET_DIR = targetArg || (fs.existsSync(path.join(ROOT, 'docs')) ? path.join(ROOT, 'docs') : FREE_SRC);
 const OUTPUT = path.join(TARGET_DIR, 'precache-manifest.js');
@@ -28,24 +27,49 @@ function collect (directory, base, result) {
 
 const files = [];
 collect(TARGET_DIR, TARGET_DIR, files);
-const hash = crypto.createHash('sha256');
+
+const coreHashes = {};
+const aiHashes = {};
+const coreHash = crypto.createHash('sha256');
+const aiHash = crypto.createHash('sha256');
+
+const aiFiles = [];
+const coreFiles = [];
+
 files.forEach(file => {
-    hash.update(file);
-    hash.update(fs.readFileSync(path.join(TARGET_DIR, file)));
+    const fileBuf = fs.readFileSync(path.join(TARGET_DIR, file));
+    // 取內容 SHA-256 前 12 碼作為逐檔版本標識
+    const fileHash = crypto.createHash('sha256').update(fileBuf).digest('hex').slice(0, 12);
+    const url = './' + file;
+
+    if (file.indexOf('vendor/ai/') === 0) {
+        aiFiles.push(url);
+        aiHashes[url] = fileHash;
+        aiHash.update(file);
+        aiHash.update(fileBuf);
+    } else {
+        coreFiles.push(url);
+        coreHashes[url] = fileHash;
+        coreHash.update(file);
+        coreHash.update(fileBuf);
+    }
 });
-const version = hash.digest('hex').slice(0, 16);
-const aiFiles = files.filter(file => file.indexOf('vendor/ai/') === 0);
-const coreFiles = files.filter(file => file.indexOf('vendor/ai/') !== 0);
-const coreUrls = coreFiles.map(file => './' + file);
-const aiUrls = aiFiles.map(file => './' + file);
-const output = `self.__SCRATCHJR_PRECACHE_VERSION=${JSON.stringify(version)};\n` +
-    `self.__SCRATCHJR_CORE_URLS=${JSON.stringify(coreUrls, null, 2)};\n` +
-    `self.__SCRATCHJR_AI_URLS=${JSON.stringify(aiUrls, null, 2)};\n`;
+
+const coreVersion = coreHash.digest('hex').slice(0, 16);
+// AI 模型檔案獨立版本 Hash，核心檔案改動絕不影響此版本號
+const aiVersion = aiHash.digest('hex').slice(0, 16);
+
+const output = `self.__SCRATCHJR_PRECACHE_VERSION=${JSON.stringify(coreVersion)};\n` +
+    `self.__SCRATCHJR_AI_VERSION=${JSON.stringify(aiVersion)};\n` +
+    `self.__SCRATCHJR_CORE_URLS=${JSON.stringify(coreFiles, null, 2)};\n` +
+    `self.__SCRATCHJR_CORE_HASHES=${JSON.stringify(coreHashes, null, 2)};\n` +
+    `self.__SCRATCHJR_AI_URLS=${JSON.stringify(aiFiles, null, 2)};\n` +
+    `self.__SCRATCHJR_AI_HASHES=${JSON.stringify(aiHashes, null, 2)};\n`;
+
 fs.writeFileSync(OUTPUT, output);
 
-// 若在 docs 產生，同步一份至 editions/free/src 以確保本地伺服器與驗證一致
 if (TARGET_DIR !== FREE_SRC) {
     fs.writeFileSync(path.join(FREE_SRC, 'precache-manifest.js'), output);
 }
 
-console.log(`Generated precache manifest ${version} from ${path.relative(ROOT, TARGET_DIR)}: ${coreUrls.length} core, ${aiUrls.length} AI files`);
+console.log(`Generated precache manifest (Core: ${coreVersion}, AI: ${aiVersion}) from ${path.relative(ROOT, TARGET_DIR)}: ${coreFiles.length} core, ${aiFiles.length} AI files`);
