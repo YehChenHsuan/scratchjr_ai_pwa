@@ -213,18 +213,25 @@ async function runWranglerScenarios() {
         console.log('[Step 1] 線上開啟 http://localhost:8787/ ...');
         const rootRes = await page.goto(`http://localhost:${PORT_WRANGLER}/`, { waitUntil: 'networkidle' });
         console.log(`- 根路徑狀態: ${rootRes.status()}, 最終網址: ${page.url()}`);
-        await page.waitForFunction(() => 'serviceWorker' in navigator);
-        await sleep(2500);
+        console.log('- 等待 Service Worker 完成安裝並取得控制權 (controller)...');
+        await page.waitForFunction(() => {
+            return 'serviceWorker' in navigator && navigator.serviceWorker.controller !== null;
+        }, { timeout: 35000 }).catch(async () => {
+            // 若超時，重新整理一次以確保 controller 綁定
+            await page.reload({ waitUntil: 'networkidle' });
+        });
+        await sleep(1000);
 
         // 觸發 AI 模型快取下載
         console.log('[Step 2] 觸發 AI 模型下載至 Cache Storage...');
         await page.evaluate(() => {
-            if (navigator.serviceWorker.controller) {
+            if (navigator.serviceWorker && navigator.serviceWorker.controller) {
                 navigator.serviceWorker.controller.postMessage({ type: 'CACHE_AI' });
             }
         });
         for (let i = 0; i < 30; i++) {
             const count = await page.evaluate(async () => {
+                if (typeof caches === 'undefined') return 0;
                 const keys = await caches.keys();
                 const aiKey = keys.find(k => k.includes('scratchjr-ai-'));
                 if (!aiKey) return 0;

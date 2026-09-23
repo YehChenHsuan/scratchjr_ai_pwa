@@ -1,5 +1,5 @@
 /* global self, caches, fetch, Response */
-// SW Build Version: 2026-09-23T05:50:25.950Z
+// SW Build Version: 2026-09-23T06:28:20.071Z
 importScripts('./precache-manifest.js');
 
 const CACHE_PREFIX = 'scratchjr-';
@@ -269,8 +269,15 @@ self.addEventListener('fetch', event => {
             const cleanPromise = hash ? cleanResponse(copy, {'X-SJR-Hash': hash}) : cleanResponse(copy);
             cleanPromise.then(clean => caches.open(CORE_CACHE).then(cache => cache.put(cacheKey, clean)));
             return response;
-        }).catch(() => caches.match(request, {ignoreSearch: true, ignoreVary: true})
-            .then(cached => cached || caches.match('./index.html', {ignoreVary: true}))));
+        }).catch(() => caches.match(request, {ignoreSearch: true, ignoreVary: true}).then(cached => {
+            if (cached) return cached;
+            // 若請求為無副檔名路由且非根路徑（如 /editor、/home），嘗試比對預先快取的對應 .html 檔案
+            const lastSegment = url.pathname.slice(url.pathname.lastIndexOf('/') + 1);
+            if (url.pathname !== '/' && !lastSegment.includes('.')) {
+                return caches.match('.' + url.pathname + '.html', {ignoreSearch: true, ignoreVary: true});
+            }
+            return null;
+        }).then(cached => cached || caches.match('./index.html', {ignoreVary: true}))));
         return;
     }
 
