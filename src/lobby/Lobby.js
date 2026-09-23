@@ -268,6 +268,12 @@ export default class Lobby {
             } else if (state === 'installed') {
                 var installedPill = newHTML('div', 'pwa-status-pill installed', installContainer);
                 installedPill.textContent = Localization.localize('PWA_INSTALLED_STATUS');
+            } else if (state === 'installed-browser') {
+                var browserPill = newHTML('div', 'pwa-status-pill installed-browser', installContainer);
+                browserPill.textContent = Localization.localize('PWA_INSTALLED_BROWSER');
+            } else if (state === 'chromium-manual') {
+                var manualPill = newHTML('div', 'pwa-status-pill chromium-manual', installContainer);
+                manualPill.textContent = Localization.localize('PWA_CHROMIUM_MANUAL');
             } else {
                 var unsupportedPill = newHTML('div', 'pwa-status-pill unsupported', installContainer);
                 unsupportedPill.textContent = Localization.localize('PWA_UNSUPPORTED_HINT');
@@ -288,6 +294,100 @@ export default class Lobby {
 
         var pollTimer = null;
         var isUpdatingStatus = false;
+        var offlineRefs = null;
+
+        var buildOfflineCardDOM = function () {
+            while (offlineCard.firstChild) {
+                offlineCard.removeChild(offlineCard.firstChild);
+            }
+            var refs = {};
+
+            // 準備中提示訊息
+            refs.prepMsg = newHTML('div', 'pwa-status-preparing', offlineCard);
+            refs.prepMsg.textContent = Localization.localize('PWA_STATUS_PREPARING');
+            refs.prepMsg.style.display = 'none';
+
+            // 1. 核心資源
+            refs.coreRow = newHTML('div', 'pwa-status-row', offlineCard);
+            var coreLabel = newHTML('div', 'pwa-status-label', refs.coreRow);
+            coreLabel.textContent = Localization.localize('PWA_STATUS_CORE');
+
+            var coreWrap = newHTML('div', 'pwa-progress-wrap', refs.coreRow);
+            var coreBg = newHTML('div', 'pwa-progress-bar-bg', coreWrap);
+            refs.coreFill = newHTML('div', 'pwa-progress-bar-fill', coreBg);
+
+            refs.coreText = newHTML('div', 'pwa-progress-text', coreWrap);
+            refs.coreCount = newHTML('span', '', refs.coreText);
+            refs.coreCheck = newHTML('span', 'pwa-check-icon', refs.coreText);
+            refs.coreCheck.textContent = ' ✓';
+            refs.coreCheck.style.display = 'none';
+
+            // 2. AI 模型
+            refs.aiRow = newHTML('div', 'pwa-status-row', offlineCard);
+            var aiLabel = newHTML('div', 'pwa-status-label', refs.aiRow);
+            aiLabel.textContent = Localization.localize('PWA_STATUS_AI');
+
+            var aiWrap = newHTML('div', 'pwa-progress-wrap', refs.aiRow);
+            var aiBg = newHTML('div', 'pwa-progress-bar-bg', aiWrap);
+            refs.aiFill = newHTML('div', 'pwa-progress-bar-fill', aiBg);
+
+            refs.aiText = newHTML('div', 'pwa-progress-text', aiWrap);
+            refs.aiCount = newHTML('span', '', refs.aiText);
+            refs.aiCheck = newHTML('span', 'pwa-check-icon', refs.aiText);
+            refs.aiCheck.textContent = ' ✓';
+            refs.aiCheck.style.display = 'none';
+
+            // 3. 資料保護
+            refs.persistRow = newHTML('div', 'pwa-status-row', offlineCard);
+            var persistLabel = newHTML('div', 'pwa-status-label', refs.persistRow);
+            persistLabel.textContent = Localization.localize('PWA_STATUS_DATA_PROTECTION');
+
+            var persistRight = newHTML('div', 'pwa-status-val-wrap', refs.persistRow);
+
+            refs.protText = newHTML('span', '', persistRight);
+            refs.protText.textContent = Localization.localize('PWA_STATUS_PROTECTED');
+            refs.protText.style.color = '#4CAF50';
+            refs.protText.style.fontWeight = 'bold';
+            refs.protText.style.display = 'none';
+
+            refs.protCheck = newHTML('span', 'pwa-check-icon', persistRight);
+            refs.protCheck.textContent = ' ✓';
+            refs.protCheck.style.display = 'none';
+
+            refs.enableBtn = newHTML('button', 'pwa-action-btn-small', persistRight);
+            refs.enableBtn.textContent = Localization.localize('PWA_ENABLE_PROTECTION_BUTTON');
+            refs.enableBtn.style.display = 'none';
+
+            refs.deniedHint = newHTML('span', 'pwa-protection-denied-hint', persistRight);
+            refs.deniedHint.textContent = Localization.localize('PWA_PROTECTION_DENIED_HINT');
+            refs.deniedHint.style.display = 'none';
+
+            refs.enableBtn.onclick = function () {
+                try {
+                    ScratchAudio.sndFX('tap.wav');
+                } catch (e) {
+                    // 忽略音效播放錯誤
+                }
+                requestPersistentStorage().then(function (granted) {
+                    if (!granted) {
+                        refs.deniedHint.style.display = 'inline-block';
+                    } else {
+                        refs.deniedHint.style.display = 'none';
+                    }
+                    updateOfflineStatus();
+                });
+            };
+
+            // 4. 已使用空間
+            refs.storageRow = newHTML('div', 'pwa-status-row', offlineCard);
+            var storageLabel = newHTML('div', 'pwa-status-label', refs.storageRow);
+            storageLabel.textContent = Localization.localize('PWA_STORAGE_USED');
+
+            refs.storageVal = newHTML('div', '', refs.storageRow);
+            refs.storageVal.style.fontWeight = 'bold';
+
+            return refs;
+        };
 
         var updateOfflineStatus = function () {
             if (isUpdatingStatus) {
@@ -300,95 +400,68 @@ export default class Lobby {
                     return;
                 }
 
-                while (offlineCard.firstChild) {
-                    offlineCard.removeChild(offlineCard.firstChild);
+                if (!offlineRefs) {
+                    offlineRefs = buildOfflineCardDOM();
                 }
 
                 if (status.coreCached === null && status.aiCached === null) {
-                    var prepMsg = newHTML('div', 'pwa-status-preparing', offlineCard);
-                    prepMsg.textContent = Localization.localize('PWA_STATUS_PREPARING');
+                    offlineRefs.prepMsg.style.display = 'block';
+                    offlineRefs.coreRow.style.display = 'none';
+                    offlineRefs.aiRow.style.display = 'none';
+                    offlineRefs.persistRow.style.display = 'none';
+                    offlineRefs.storageRow.style.display = 'none';
                     return;
                 }
 
-                // 1. Core Resources
-                var coreRow = newHTML('div', 'pwa-status-row', offlineCard);
-                var coreLabel = newHTML('div', 'pwa-status-label', coreRow);
-                coreLabel.textContent = Localization.localize('PWA_STATUS_CORE');
+                offlineRefs.prepMsg.style.display = 'none';
+                offlineRefs.coreRow.style.display = 'flex';
+                offlineRefs.aiRow.style.display = 'flex';
+                offlineRefs.persistRow.style.display = 'flex';
+                offlineRefs.storageRow.style.display = 'flex';
 
-                var coreWrap = newHTML('div', 'pwa-progress-wrap', coreRow);
-                var coreBg = newHTML('div', 'pwa-progress-bar-bg', coreWrap);
-                var coreFill = newHTML('div', 'pwa-progress-bar-fill', coreBg);
+                // 1. 核心資源
                 var coreCached = status.coreCached || 0;
                 var coreTotal = status.coreTotal || 0;
                 var corePercent = coreTotal > 0 ? Math.min(100, Math.round((coreCached / coreTotal) * 100)) : 0;
-                coreFill.style.width = corePercent + '%';
-
-                var coreText = newHTML('div', 'pwa-progress-text', coreWrap);
-                coreText.textContent = coreCached + ' / ' + coreTotal;
+                offlineRefs.coreFill.style.width = corePercent + '%';
+                offlineRefs.coreCount.textContent = coreCached + ' / ' + coreTotal;
                 if (coreTotal > 0 && coreCached >= coreTotal) {
-                    coreFill.className += ' complete';
-                    var check1 = newHTML('span', 'pwa-check-icon', coreText);
-                    check1.textContent = ' ✓';
+                    offlineRefs.coreFill.className = 'pwa-progress-bar-fill complete';
+                    offlineRefs.coreCheck.style.display = 'inline';
+                } else {
+                    offlineRefs.coreFill.className = 'pwa-progress-bar-fill';
+                    offlineRefs.coreCheck.style.display = 'none';
                 }
 
-                // 2. AI Models
-                var aiRow = newHTML('div', 'pwa-status-row', offlineCard);
-                var aiLabel = newHTML('div', 'pwa-status-label', aiRow);
-                aiLabel.textContent = Localization.localize('PWA_STATUS_AI');
-
-                var aiWrap = newHTML('div', 'pwa-progress-wrap', aiRow);
-                var aiBg = newHTML('div', 'pwa-progress-bar-bg', aiWrap);
-                var aiFill = newHTML('div', 'pwa-progress-bar-fill', aiBg);
+                // 2. AI 模型
                 var aiCached = status.aiCached || 0;
                 var aiTotal = status.aiTotal || 0;
                 var aiPercent = aiTotal > 0 ? Math.min(100, Math.round((aiCached / aiTotal) * 100)) : 0;
-                aiFill.style.width = aiPercent + '%';
-
-                var aiText = newHTML('div', 'pwa-progress-text', aiWrap);
-                aiText.textContent = aiCached + ' / ' + aiTotal;
+                offlineRefs.aiFill.style.width = aiPercent + '%';
+                offlineRefs.aiCount.textContent = aiCached + ' / ' + aiTotal;
                 if (aiTotal > 0 && aiCached >= aiTotal) {
-                    aiFill.className += ' complete';
-                    var check2 = newHTML('span', 'pwa-check-icon', aiText);
-                    check2.textContent = ' ✓';
-                }
-
-                // 3. Data Protection
-                var persistRow = newHTML('div', 'pwa-status-row', offlineCard);
-                var persistLabel = newHTML('div', 'pwa-status-label', persistRow);
-                persistLabel.textContent = Localization.localize('PWA_STATUS_DATA_PROTECTION');
-
-                var persistRight = newHTML('div', 'pwa-status-val-wrap', persistRow);
-                if (status.persisted) {
-                    var protText = newHTML('span', '', persistRight);
-                    protText.textContent = Localization.localize('PWA_STATUS_PROTECTED');
-                    protText.style.color = '#4CAF50';
-                    protText.style.fontWeight = 'bold';
-                    var checkP = newHTML('span', 'pwa-check-icon', persistRight);
-                    checkP.textContent = ' ✓';
+                    offlineRefs.aiFill.className = 'pwa-progress-bar-fill complete';
+                    offlineRefs.aiCheck.style.display = 'inline';
                 } else {
-                    var enableBtn = newHTML('button', 'pwa-action-btn-small', persistRight);
-                    enableBtn.textContent = Localization.localize('PWA_ENABLE_PROTECTION_BUTTON');
-                    enableBtn.onclick = function () {
-                        try {
-                            ScratchAudio.sndFX('tap.wav');
-                        } catch (e) {
-                            // ignore sound error
-                        }
-                        requestPersistentStorage().then(function () {
-                            updateOfflineStatus();
-                        });
-                    };
+                    offlineRefs.aiFill.className = 'pwa-progress-bar-fill';
+                    offlineRefs.aiCheck.style.display = 'none';
                 }
 
-                // 4. Storage Used
-                var storageRow = newHTML('div', 'pwa-status-row', offlineCard);
-                var storageLabel = newHTML('div', 'pwa-status-label', storageRow);
-                storageLabel.textContent = Localization.localize('PWA_STORAGE_USED');
+                // 3. 資料保護
+                if (status.persisted) {
+                    offlineRefs.protText.style.display = 'inline';
+                    offlineRefs.protCheck.style.display = 'inline';
+                    offlineRefs.enableBtn.style.display = 'none';
+                    offlineRefs.deniedHint.style.display = 'none';
+                } else {
+                    offlineRefs.protText.style.display = 'none';
+                    offlineRefs.protCheck.style.display = 'none';
+                    offlineRefs.enableBtn.style.display = 'inline-block';
+                }
 
-                var storageVal = newHTML('div', '', storageRow);
-                storageVal.style.fontWeight = 'bold';
+                // 4. 已使用空間
                 var mb = (status.usageBytes / (1024 * 1024)).toFixed(1);
-                storageVal.textContent = mb + ' MB';
+                offlineRefs.storageVal.textContent = mb + ' MB';
 
                 var isAllComplete = (coreTotal > 0 && coreCached >= coreTotal) &&
                     (aiTotal > 0 && aiCached >= aiTotal);
