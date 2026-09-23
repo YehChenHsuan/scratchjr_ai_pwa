@@ -1,4 +1,4 @@
-self.__SCRATCHJR_PRECACHE_VERSION="a5d58c85078d9aa0";
+self.__SCRATCHJR_PRECACHE_VERSION="49bdfa69824088bd";
 self.__SCRATCHJR_AI_VERSION="d1936e4930b42abf";
 self.__SCRATCHJR_CORE_URLS=[
   "./aitrainer.html",
@@ -1230,7 +1230,7 @@ self.__SCRATCHJR_CORE_HASHES={
   "./pop.mp3": "671e726405d1",
   "./samples/Star.txt": "7e8c299dd2d9",
   "./samples/star.png": "d46e97c1bb77",
-  "./service-worker.js": "69bc556dafd4",
+  "./service-worker.js": "9b176fc2fbfc",
   "./settings.json": "717ab9b5712c",
   "./sounds/boing.wav": "6c30220a098b",
   "./sounds/copy.wav": "9e44730581c5",
