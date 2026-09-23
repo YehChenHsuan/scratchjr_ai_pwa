@@ -45,3 +45,4 @@ GoogleService-Info.plist
 !.env.example
 
 ui-audit/
+.tmp-playwright-profile/

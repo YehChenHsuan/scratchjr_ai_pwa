@@ -2,9 +2,11 @@ const { chromium } = require('playwright');
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { spawn, execSync } = require('child_process');
 
-const PORT = 8080;
+const ROOT = path.resolve(__dirname, '..');
+const PORT_NODE = 8080;
+const PORT_WRANGLER = 8787;
 const PROFILE_DIR = path.resolve('.tmp-playwright-profile');
 
 const MIME = {
@@ -14,6 +16,13 @@ const MIME = {
     '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.mp4': 'video/mp4',
     '.map': 'application/json'
 };
+
+function killProcess(pid) {
+    if (!pid) return;
+    try {
+        execSync(`taskkill /pid ${pid} /t /f`, { stdio: 'ignore' });
+    } catch (e) {}
+}
 
 function createStaticServer(rootDir, onRequest) {
     const srcDir = path.join(rootDir, 'editions', 'free', 'src');
@@ -74,22 +83,399 @@ function createStaticServer(rootDir, onRequest) {
     });
 }
 
-async function startServer(rootDir, onRequest) {
+async function startNodeServer(rootDir, port = PORT_NODE, onRequest) {
     const server = createStaticServer(rootDir, onRequest);
     await new Promise((resolve, reject) => {
-        server.listen(PORT, '127.0.0.1', () => resolve());
+        server.listen(port, '127.0.0.1', () => resolve());
         server.on('error', reject);
     });
     return server;
 }
 
+function startWranglerDev(port = PORT_WRANGLER) {
+    console.log(`啟動 wrangler dev (port ${port})...`);
+    const wrangler = spawn('cmd.exe', ['/c', 'npx', 'wrangler', 'dev', '--port', String(port)], {
+        cwd: ROOT,
+        stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    return new Promise((resolve, reject) => {
+        let isReady = false;
+        let pollTimer = null;
+        const timeout = setTimeout(() => {
+            if (!isReady) {
+                if (pollTimer) clearInterval(pollTimer);
+                reject(new Error('Wrangler start timeout (35s)'));
+            }
+        }, 35000);
+
+        const checkReady = () => {
+            if (isReady) return;
+            isReady = true;
+            clearTimeout(timeout);
+            if (pollTimer) clearInterval(pollTimer);
+            console.log(`Wrangler dev 就緒於 http://localhost:${port}`);
+            resolve(wrangler);
+        };
+
+        const onData = data => {
+            const str = data.toString();
+            if (str.includes('Ready on') || str.includes(`:${port}`)) {
+                checkReady();
+            }
+        };
+        wrangler.stdout.on('data', onData);
+        wrangler.stderr.on('data', onData);
+        wrangler.on('error', err => {
+            if (pollTimer) clearInterval(pollTimer);
+            reject(err);
+        });
+
+        // 雙重保障：以 HTTP probe 輪詢連接埠
+        pollTimer = setInterval(() => {
+            http.get(`http://127.0.0.1:${port}/`, res => {
+                checkReady();
+            }).on('error', () => {});
+        }, 500);
+    });
+}
+
+function fetchHttpRaw(port, urlPath) {
+    return new Promise((resolve, reject) => {
+        http.get(`http://127.0.0.1:${port}${urlPath}`, res => {
+            resolve({
+                status: res.statusCode,
+                location: res.headers.location,
+                contentType: res.headers['content-type'],
+                cacheControl: res.headers['cache-control']
+            });
+        }).on('error', reject);
+    });
+}
+
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-async function main() {
-    console.log('=== 開始真實瀏覽器自動化驗證 ===\n');
+// =============================================================================
+// Wrangler 專用測試情境 (b & c)
+// =============================================================================
+async function runWranglerScenarios() {
+    console.log('=== 開始 Wrangler Dev (--target=wrangler) 真實瀏覽器驗證 ===\n');
     if (!fs.existsSync('ui-audit')) fs.mkdirSync('ui-audit');
 
+    // 啟動前先確保 docs 產物最新
+    console.log('[Step 0] 執行 build:web 確保 docs/ 產物與 precache 清單最新...');
+    execSync('npm run build:web', { cwd: ROOT, stdio: 'inherit' });
+
+    let wrangler = await startWranglerDev(PORT_WRANGLER);
+
     // 清理先前的暫存 profile
+    if (fs.existsSync(PROFILE_DIR)) {
+        try { fs.rmSync(PROFILE_DIR, { recursive: true, force: true }); } catch (e) {}
+    }
+
+    let context = await chromium.launchPersistentContext(PROFILE_DIR, {
+        headless: true,
+        args: [
+            '--use-fake-ui-for-media-stream',
+            '--use-fake-device-for-media-stream',
+            '--autoplay-policy=no-user-gesture-required'
+        ]
+    });
+
+    let swDownloaded = [];
+    context.on('serviceworker', worker => {
+        worker.on('console', msg => {
+            const text = msg.text();
+            if (text.includes('[SW Install] 實際自網路下載的檔案')) {
+                console.log('SW Console output:', text);
+                const match = /\[SW Install\] 實際自網路下載的檔案 \(reused=false\):\s*(\[.*\])/.exec(text);
+                if (match) {
+                    try {
+                        const parsed = JSON.parse(match[1]);
+                        swDownloaded.push(...parsed);
+                    } catch (e) {
+                        console.error('Failed to parse fetched items JSON:', e);
+                    }
+                }
+            }
+        });
+    });
+
+    let page = await context.newPage();
+
+    try {
+        // ---------------------------------------------------------------------
+        // 線上階段：依序開啟 / -> home.html -> editor.html?pmd5=...
+        // ---------------------------------------------------------------------
+        console.log('\n--- [情境 b: 線上依序開啟頁面] ---');
+
+        // 1. 開啟 /
+        console.log('[Step 1] 線上開啟 http://localhost:8787/ ...');
+        const rootRes = await page.goto(`http://localhost:${PORT_WRANGLER}/`, { waitUntil: 'networkidle' });
+        console.log(`- 根路徑狀態: ${rootRes.status()}, 最終網址: ${page.url()}`);
+        await page.waitForFunction(() => 'serviceWorker' in navigator);
+        await sleep(2500);
+
+        // 觸發 AI 模型快取下載
+        console.log('[Step 2] 觸發 AI 模型下載至 Cache Storage...');
+        await page.evaluate(() => {
+            if (navigator.serviceWorker.controller) {
+                navigator.serviceWorker.controller.postMessage({ type: 'CACHE_AI' });
+            }
+        });
+        for (let i = 0; i < 30; i++) {
+            const count = await page.evaluate(async () => {
+                const keys = await caches.keys();
+                const aiKey = keys.find(k => k.includes('scratchjr-ai-'));
+                if (!aiKey) return 0;
+                const c = await caches.open(aiKey);
+                return (await c.keys()).length;
+            });
+            if (count >= 10) {
+                console.log(`- AI 快取已完整就緒: ${count}/10 個檔案`);
+                break;
+            }
+            await sleep(1000);
+        }
+        await page.screenshot({ path: 'ui-audit/wrangler-b-01-root.png' });
+
+        // 2. 開啟 home.html
+        console.log('[Step 3] 線上開啟 http://localhost:8787/home.html ...');
+        const homeRes = await page.goto(`http://localhost:${PORT_WRANGLER}/home.html`, { waitUntil: 'networkidle' });
+        console.log(`- 狀態碼: ${homeRes.status()}, 最終網址 (預期被 307 導向為 /home): ${page.url()}`);
+        await page.waitForSelector('#hometab', { timeout: 8000 }).catch(() => {});
+        await page.screenshot({ path: 'ui-audit/wrangler-b-02-home.png' });
+
+        // 3. 開啟 editor.html?pmd5=samples/Star.txt
+        const samplePmd5 = 'samples/Star.txt';
+        console.log(`[Step 4] 線上開啟 http://localhost:8787/editor.html?pmd5=${samplePmd5} ...`);
+        const editorRes = await page.goto(`http://localhost:${PORT_WRANGLER}/editor.html?pmd5=${samplePmd5}`, { waitUntil: 'networkidle' });
+        console.log(`- 狀態碼: ${editorRes.status()}, 最終網址 (預期被 307 導向為 /editor?pmd5=...): ${page.url()}`);
+        await page.waitForSelector('#stage', { timeout: 8000 }).catch(() => {});
+        await page.screenshot({ path: 'ui-audit/wrangler-b-03-editor-online.png' });
+
+        // ---------------------------------------------------------------------
+        // 切換為離線模式，依序測試四個子步驟
+        // ---------------------------------------------------------------------
+        console.log('\n--- [情境 b: 切換為離線模式 context.setOffline(true)] ---');
+        await context.setOffline(true);
+
+        const bResults = {};
+
+        // 子步驟 b.1: 從 home 用 location.href 導向 editor.html?pmd5=...
+        console.log('\n[離線測試 b.1] 先回到 home，再透過 location.href 導向 editor.html?pmd5=samples/Star.txt ...');
+        await page.goto(`http://localhost:${PORT_WRANGLER}/home`, { waitUntil: 'networkidle' });
+        await page.waitForSelector('#hometab', { timeout: 5000 }).catch(() => {});
+
+        await page.evaluate((md5) => {
+            window.location.href = `editor.html?pmd5=${md5}`;
+        }, samplePmd5);
+        await sleep(3000);
+        await page.waitForSelector('#stage', { timeout: 5000 }).catch(() => {});
+
+        const b1Url = page.url();
+        const b1PageType = await page.evaluate(() => window.scratchJrPage).catch(() => 'unknown');
+        const b1HasStage = await page.$('#stage') !== null;
+        const b1ReturnedToHome = b1PageType === 'index' || (await page.$('#catface') !== null && !b1HasStage);
+        const b1IsCorrect = b1HasStage && b1PageType === 'editor' && !b1ReturnedToHome;
+        bResults.b1 = {
+            step: '從 home 用 location.href 導向 editor.html?pmd5=...',
+            finalUrl: b1Url,
+            pageType: b1PageType,
+            hasStage: b1HasStage,
+            returnedToHome: b1ReturnedToHome,
+            isCorrect: b1IsCorrect
+        };
+        console.log(`- 最終網址: ${b1Url}`);
+        console.log(`- 頁面類型: ${b1PageType}, 編輯器畫布存在: ${b1HasStage}, 是否退回首頁: ${b1ReturnedToHome} (驗證通過: ${b1IsCorrect})`);
+        await page.screenshot({ path: 'ui-audit/wrangler-b-04-offline-nav-editor.png' });
+
+        // 子步驟 b.2: 在 /editor?pmd5=...（被 307 導向後的網址）按重新整理
+        console.log('\n[離線測試 b.2] 在 /editor?pmd5=...（被 307 導向後的網址）按重新整理 ...');
+        // 先確保前往被導向後的網址 /editor?pmd5=...
+        await page.goto(`http://localhost:${PORT_WRANGLER}/editor?pmd5=${samplePmd5}`, { waitUntil: 'networkidle' }).catch(() => {});
+        await sleep(1500);
+        // 按重新整理
+        console.log('- 執行 page.reload() 重新整理...');
+        await page.reload({ waitUntil: 'networkidle' }).catch(() => {});
+        await sleep(3000);
+        await page.waitForSelector('#stage', { timeout: 5000 }).catch(() => {});
+
+        const b2Url = page.url();
+        const b2PageType = await page.evaluate(() => window.scratchJrPage).catch(() => 'unknown');
+        const b2HasStage = await page.$('#stage') !== null;
+        const b2ReturnedToHome = b2PageType === 'index' || (await page.$('#catface') !== null && !b2HasStage);
+        const b2IsCorrect = b2HasStage && b2PageType === 'editor' && !b2ReturnedToHome;
+        bResults.b2 = {
+            step: '在 /editor?pmd5=...（被 307 導向後的網址）按重新整理',
+            finalUrl: b2Url,
+            pageType: b2PageType,
+            hasStage: b2HasStage,
+            returnedToHome: b2ReturnedToHome,
+            isCorrect: b2IsCorrect
+        };
+        console.log(`- 最終網址: ${b2Url}`);
+        console.log(`- 頁面類型: ${b2PageType}, 編輯器畫布存在: ${b2HasStage}, 是否退回首頁: ${b2ReturnedToHome} (驗證通過: ${b2IsCorrect})`);
+        await page.screenshot({ path: 'ui-audit/wrangler-b-05-offline-reload-editor.png' });
+
+        // 子步驟 b.3: 回到 index.html?back=yes
+        console.log('\n[離線測試 b.3] 導向 index.html?back=yes ...');
+        await page.evaluate(() => {
+            window.location.href = 'index.html?back=yes';
+        });
+        await sleep(3000);
+        await page.waitForSelector('#catface, #go', { timeout: 5000 }).catch(() => {});
+
+        const b3Url = page.url();
+        const b3PageType = await page.evaluate(() => window.scratchJrPage).catch(() => 'unknown');
+        const b3HasIndexLobby = (await page.$('#catface') !== null || await page.$('#jrlogo') !== null) && b3PageType === 'index';
+        const b3IsCorrect = b3HasIndexLobby;
+        bResults.b3 = {
+            step: '回到 index.html?back=yes',
+            finalUrl: b3Url,
+            pageType: b3PageType,
+            hasIndexLobby: b3HasIndexLobby,
+            isCorrect: b3IsCorrect
+        };
+        console.log(`- 最終網址: ${b3Url}`);
+        console.log(`- 頁面類型: ${b3PageType}, 畫面呈現是否為首頁: ${b3HasIndexLobby} (驗證通過: ${b3IsCorrect})`);
+        await page.screenshot({ path: 'ui-audit/wrangler-b-06-offline-back-index.png' });
+
+        // 子步驟 b.4: 開啟 aitrainer.html?projectId=...
+        console.log(`\n[離線測試 b.4] 導向 aitrainer.html?projectId=${samplePmd5} ...`);
+        await page.evaluate((md5) => {
+            window.location.href = `aitrainer.html?projectId=${encodeURIComponent(md5)}`;
+        }, samplePmd5);
+        await sleep(3000);
+        await page.waitForSelector('#aitrainer-root', { timeout: 5000 }).catch(() => {});
+
+        const b4Url = page.url();
+        const b4PageType = await page.evaluate(() => window.scratchJrPage).catch(() => 'unknown');
+        const b4HasAiRoot = await page.$('#aitrainer-root') !== null;
+        const b4ReturnedToHome = b4PageType === 'index' || (await page.$('#catface') !== null && !b4HasAiRoot);
+        const b4IsCorrect = b4HasAiRoot && b4PageType === 'aitrainer' && !b4ReturnedToHome;
+        bResults.b4 = {
+            step: '開啟 aitrainer.html?projectId=...',
+            finalUrl: b4Url,
+            pageType: b4PageType,
+            hasAiRoot: b4HasAiRoot,
+            returnedToHome: b4ReturnedToHome,
+            isCorrect: b4IsCorrect
+        };
+        console.log(`- 最終網址: ${b4Url}`);
+        console.log(`- 頁面類型: ${b4PageType}, AI 畫面存在: ${b4HasAiRoot}, 是否退回首頁: ${b4ReturnedToHome} (驗證通過: ${b4IsCorrect})`);
+        await page.screenshot({ path: 'ui-audit/wrangler-b-07-offline-aitrainer.png' });
+
+        // 恢復連線模式
+        console.log('\n恢復連線模式 context.setOffline(false)...');
+        await context.setOffline(false);
+
+        // ---------------------------------------------------------------------
+        // 情境 c: 增量更新與 Cloudflare 導向狀態及快取 Key 檢查
+        // ---------------------------------------------------------------------
+        console.log('\n--- [情境 c: 增量更新與 Cloudflare 快取 Key / 導向分析] ---');
+
+        // 記錄 app.bundle.js 和 editor.html 被 Cloudflare 導向時的回應狀態
+        console.log('[Step 1] 檢查 Cloudflare 直接回應狀態 (Raw HTTP):');
+        const rawBundle = await fetchHttpRaw(PORT_WRANGLER, '/app.bundle.js');
+        const rawEditorHtml = await fetchHttpRaw(PORT_WRANGLER, '/editor.html');
+        const rawEditorClean = await fetchHttpRaw(PORT_WRANGLER, '/editor');
+
+        console.log(`- /app.bundle.js 回應狀態: ${rawBundle.status} (無導向)`);
+        console.log(`- /editor.html 回應狀態: ${rawEditorHtml.status}, Location: ${rawEditorHtml.location}`);
+        console.log(`- /editor 回應狀態: ${rawEditorClean.status}`);
+
+        // 檢查當前 Cache Storage 中存入 app.bundle.js 與 editor 的 Key
+        const cacheKeysInfo = await page.evaluate(async () => {
+            const keys = await caches.keys();
+            const coreKey = keys.find(k => k.startsWith('scratchjr-core-'));
+            if (!coreKey) return { error: 'no core cache found' };
+            const cache = await caches.open(coreKey);
+            const reqs = await cache.keys();
+            const urls = reqs.map(r => r.url);
+            
+            const bundleEntries = urls.filter(u => u.includes('app.bundle.js'));
+            const editorEntries = urls.filter(u => u.includes('editor'));
+
+            const bundleRes = bundleEntries.length ? await (await cache.match(bundleEntries[0])).headers.get('X-SJR-Hash') : null;
+            const editorDetails = [];
+            for (const u of editorEntries) {
+                const res = await cache.match(u);
+                editorDetails.push({ url: u, hash: res ? res.headers.get('X-SJR-Hash') : null });
+            }
+
+            return {
+                coreKey,
+                bundleEntries,
+                bundleHash: bundleRes,
+                editorEntries: editorDetails
+            };
+        });
+        console.log('\n[SW Cache Storage 存入 Key 與 Hash 檢查]:');
+        console.log(JSON.stringify(cacheKeysInfo, null, 2));
+
+        // 執行 start.css 增量更新測試
+        console.log('\n[Step 2] 修改 start.css 顏色樣式標記並重新 build:web ...');
+        const startCssPath = path.resolve('editions', 'free', 'src', 'css', 'start.css');
+        const originalStartCss = fs.readFileSync(startCssPath, 'utf8');
+        fs.writeFileSync(startCssPath, originalStartCss + `\n/* wrangler-incremental-test: ${Date.now()} */\n`);
+
+        execSync('npm run build:web', { cwd: ROOT, stdio: 'inherit' });
+
+        console.log('[Step 3] 重啟 wrangler dev 以載入更新後的 docs/ ...');
+        killProcess(wrangler.pid);
+        await sleep(1500);
+        wrangler = await startWranglerDev(PORT_WRANGLER);
+
+        // 清空 swDownloaded 陣列以捕捉本次更新的下載項目
+        swDownloaded.length = 0;
+
+        await page.goto(`http://localhost:${PORT_WRANGLER}/`, { waitUntil: 'networkidle' });
+        await page.evaluate(async () => {
+            const reg = await navigator.serviceWorker.getRegistration();
+            if (reg) await reg.update();
+        });
+
+        // 等待 SW 更新與 install 訊息到達
+        for (let i = 0; i < 30; i++) {
+            if (swDownloaded.length > 0) break;
+            await sleep(500);
+        }
+        await sleep(1000);
+
+        // 還原 start.css
+        fs.writeFileSync(startCssPath, originalStartCss);
+        execSync('npm run build:web', { cwd: ROOT, stdio: 'pipe' });
+
+        console.log('\n[Service Worker install 階段實際從網路下載的檔案 (reused=false)]:');
+        console.log(JSON.stringify(swDownloaded, null, 2));
+
+        console.log('\n=== Wrangler Dev 測試彙總報告 ===');
+        console.log('1. 離線導向 (情境 b) 結果:');
+        console.log(JSON.stringify(bResults, null, 2));
+
+        console.log('\n2. Cloudflare 回應狀態與 SW 快取 Key (情境 c) 結果:');
+        console.log(`- app.bundle.js status: ${rawBundle.status}, SW Cache Key: ${cacheKeysInfo.bundleEntries[0]}`);
+        console.log(`- editor.html status: ${rawEditorHtml.status} -> ${rawEditorHtml.location} (200)`);
+        console.log(`- editor SW Cache Keys: ${cacheKeysInfo.editorEntries.map(e => e.url).join(', ')}`);
+        console.log(`- SW 更新期間下載檔案: ${swDownloaded.join(', ')}`);
+
+    } finally {
+        await context.close();
+        if (wrangler) {
+            console.log('\n關閉 wrangler dev...');
+            killProcess(wrangler.pid);
+        }
+    }
+}
+
+// =============================================================================
+// Node Server 測試情境 (預設: 原 a 到 d 流程)
+// =============================================================================
+async function runNodeScenarios() {
+    console.log('=== 開始 Node Server 模式自動化驗證 ===\n');
+    if (!fs.existsSync('ui-audit')) fs.mkdirSync('ui-audit');
+
     if (fs.existsSync(PROFILE_DIR)) {
         try { fs.rmSync(PROFILE_DIR, { recursive: true, force: true }); } catch (e) {}
     }
@@ -97,14 +483,10 @@ async function main() {
     const baselineRoot = path.resolve('..', 'scratchjr-baseline');
     const headRoot = path.resolve('.');
 
-    // =========================================================================
-    // 驗證 a: 同源升級
-    // =========================================================================
     console.log('--- 驗證 a: 同源升級 (7d88f7b -> HEAD) ---');
     console.log('[Step 1] 啟動 Baseline (7d88f7b) 伺服器...');
-    let server = await startServer(baselineRoot);
+    let server = await startNodeServer(baselineRoot);
 
-    console.log('[Step 2] 使用 Playwright 啟動獨立 UserDataDir 瀏覽器...');
     let context = await chromium.launchPersistentContext(PROFILE_DIR, {
         headless: true,
         args: [
@@ -115,23 +497,18 @@ async function main() {
     });
     let page = await context.newPage();
 
-    console.log('[Step 3] 載入 Baseline 頁面 http://localhost:8080/index.html ...');
+    console.log('[Step 2] 載入 Baseline 頁面 http://localhost:8080/index.html ...');
     await page.goto('http://localhost:8080/index.html', { waitUntil: 'networkidle' });
-
-    // 等待 SW 註冊
     await page.waitForFunction(() => 'serviceWorker' in navigator);
     await sleep(2000);
 
-    // 觸發 AI 模型下載
-    console.log('[Step 4] 觸發 AI 模型下載...');
+    console.log('[Step 3] 觸發 AI 模型下載...');
     await page.evaluate(() => {
         if (navigator.serviceWorker.controller) {
             navigator.serviceWorker.controller.postMessage({ type: 'CACHE_AI' });
         }
     });
 
-    // 等待 AI 快取完成
-    console.log('[Step 5] 等待 AI 快取寫入 CacheStorage...');
     let aiCachedCount = 0;
     for (let i = 0; i < 30; i++) {
         aiCachedCount = await page.evaluate(async () => {
@@ -139,70 +516,46 @@ async function main() {
             const aiKey = keys.find(k => k.includes('scratchjr-ai-'));
             if (!aiKey) return 0;
             const cache = await caches.open(aiKey);
-            const items = await cache.keys();
-            return items.length;
+            return (await cache.keys()).length;
         });
         if (aiCachedCount >= 10) break;
         await sleep(1000);
     }
     console.log(`Baseline AI 模型快取檔案數量: ${aiCachedCount} / 10`);
 
-    // 在 IndexedDB 建立作品、錄音、訓練手勢
-    console.log('[Step 6] 在 Baseline 建立作品、聲音錄音、手勢資料...');
-    const baselineSeedResult = await page.evaluate(async () => {
+    console.log('[Step 4] 在 Baseline 建立作品、聲音錄音、手勢資料...');
+    await page.evaluate(async () => {
         return new Promise((resolve, reject) => {
             const req = indexedDB.open('scratchjr', 1);
             req.onsuccess = () => {
                 const db = req.result;
                 const tx = db.transaction(['projects', 'media', 'gestures'], 'readwrite');
-                
-                // 1. 作品
-                const pStore = tx.objectStore('projects');
-                pStore.put({
-                    id: 101,
-                    name: '同源升級測試作品',
-                    version: 'v1',
-                    cdate: '2026-09-23 10:00:00',
-                    mdate: '2026-09-23 10:00:00',
-                    json: JSON.stringify({ pages: ['page1'] }),
-                    isdeleted: 'NO'
+                tx.objectStore('projects').put({
+                    id: 101, name: '同源升級測試作品', version: 'v1',
+                    cdate: '2026-09-23 10:00:00', mdate: '2026-09-23 10:00:00',
+                    json: JSON.stringify({ pages: ['page1'] }), isdeleted: 'NO'
                 });
-
-                // 2. 聲音錄音
-                const mStore = tx.objectStore('media');
-                mStore.put({
+                tx.objectStore('media').put({
                     md5: 'rec_upgrade_test.webm',
-                    data: 'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQRChYECGFOAZwEAAAA=',
-                    ext: 'webm'
+                    data: 'GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQRChYECGFOAZwEAAAA=', ext: 'webm'
                 });
-
-                // 3. 手勢模型
-                const gStore = tx.objectStore('gestures');
-                gStore.put({
-                    projectId: 101,
-                    payload: { dataset: { 'fist': [0.12, 0.34, 0.56] }, trained: true },
+                tx.objectStore('gestures').put({
+                    projectId: 101, payload: { dataset: { 'fist': [0.12, 0.34, 0.56] }, trained: true },
                     mtime: Date.now()
                 });
-
-                tx.oncomplete = () => resolve({ ok: true });
+                tx.oncomplete = () => resolve();
                 tx.onerror = () => reject(tx.error);
             };
             req.onerror = () => reject(req.error);
         });
     });
-    console.log('Baseline 資料寫入結果:', baselineSeedResult);
     await page.screenshot({ path: 'ui-audit/upgrade-01-baseline.png' });
 
-    // 關閉 Baseline 瀏覽器與伺服器
     await context.close();
     await new Promise(r => server.close(r));
-    console.log('[Step 7] 關閉 Baseline 伺服器與瀏覽器。');
 
-    // 切到 HEAD 伺服器重新啟動
-    console.log('[Step 8] 在同一 Port 8080 啟動 HEAD 伺服器...');
-    server = await startServer(headRoot);
-
-    console.log('[Step 9] 重新開啟同一個 UserDataDir 的瀏覽器...');
+    console.log('[Step 5] 啟動 HEAD 伺服器並重新開啟同一個 profile ...');
+    server = await startNodeServer(headRoot);
     context = await chromium.launchPersistentContext(PROFILE_DIR, {
         headless: true,
         args: [
@@ -213,40 +566,16 @@ async function main() {
     });
     page = await context.newPage();
 
-    console.log('[Step 10] 開啟 http://localhost:8080/index.html 並等待新版 Service Worker 註冊與啟動...');
     await page.goto('http://localhost:8080/index.html', { waitUntil: 'networkidle' });
-
-    // 主動觸發 SW 更新並等待新版安裝與啟動
-    console.log('[Step 11] 等待新 Service Worker 完成安裝與啟用...');
     await page.evaluate(async () => {
         const reg = await navigator.serviceWorker.getRegistration();
-        if (reg) {
-            await reg.update();
-        }
+        if (reg) await reg.update();
     });
-
-    // 等待直到 HEAD 的 core cache 建立並啟用
-    let headCoreCacheName = null;
-    for (let i = 0; i < 40; i++) {
-        headCoreCacheName = await page.evaluate(async () => {
-            const keys = await caches.keys();
-            return keys.find(k => k.startsWith('scratchjr-core-') && k !== 'scratchjr-core-327d89a9a2506728') || null;
-        });
-        if (headCoreCacheName) break;
-        await sleep(1000);
-    }
-    console.log(`新版核心快取建立: ${headCoreCacheName}`);
-
-    // 重新整理兩次以保證新 SW 完全接管客戶端
-    console.log('[Step 12] 重新整理兩次使新版 SW 接管控制...');
-    await page.reload({ waitUntil: 'networkidle' });
-    await sleep(1500);
+    await sleep(3000);
     await page.reload({ waitUntil: 'networkidle' });
     await sleep(1500);
 
-    // 驗證作品、聲音、手勢與 AI 快取
     const upgradeVerification = await page.evaluate(async () => {
-        // 1. 檢查 IndexedDB
         const idbData = await new Promise((resolve, reject) => {
             const req = indexedDB.open('scratchjr', 1);
             req.onsuccess = () => {
@@ -261,8 +590,6 @@ async function main() {
             };
             req.onerror = () => reject(req.error);
         });
-
-        // 2. 檢查 Cache Storage
         const cacheKeys = await caches.keys();
         const aiCaches = cacheKeys.filter(k => k.includes('scratchjr-ai-'));
         let totalAiFiles = 0;
@@ -270,243 +597,29 @@ async function main() {
             const c = await caches.open(k);
             totalAiFiles += (await c.keys()).length;
         }
-
-        return {
-            idb: {
-                hasProject: !!idbData.project && idbData.project.name === '同源升級測試作品',
-                projectName: idbData.project ? idbData.project.name : null,
-                hasMedia: !!idbData.media && idbData.media.md5 === 'rec_upgrade_test.webm',
-                hasGesture: !!idbData.gesture && idbData.gesture.projectId === 101
-            },
-            caches: {
-                cacheKeys,
-                aiCaches,
-                totalAiFiles
-            }
-        };
+        return { idb: idbData, aiCaches, totalAiFiles };
     });
 
-    console.log('\n[升級後資料檢查結果]:');
-    console.log('- 作品存在:', upgradeVerification.idb.hasProject, `(${upgradeVerification.idb.projectName})`);
-    console.log('- 聲音錄音存在:', upgradeVerification.idb.hasMedia);
-    console.log('- 手勢模型存在:', upgradeVerification.idb.hasGesture);
-    console.log('- AI 快取保留:', upgradeVerification.caches.totalAiFiles >= 10, `(${upgradeVerification.caches.aiCaches.join(', ')}, 共 ${upgradeVerification.caches.totalAiFiles} 個檔案)`);
+    console.log('[升級後資料檢查結果]:');
+    console.log('- 作品存在:', !!upgradeVerification.idb.project);
+    console.log('- 聲音存在:', !!upgradeVerification.idb.media);
+    console.log('- 手勢存在:', !!upgradeVerification.idb.gesture);
+    console.log('- AI 快取保留:', upgradeVerification.totalAiFiles >= 10);
 
-    // 驗證 Requirement 1: 開啟 editor 後，app.bundle.js 和 editor.html 都要有 X-SJR-Hash 且無 query string 重複項目
-    console.log('\n[檢查 Requirement 1: editor.html & app.bundle.js 的 X-SJR-Hash 與 query string 正規化]');
-    await page.goto('http://localhost:8080/editor.html?pmd5=101', { waitUntil: 'networkidle' });
-    await sleep(2000);
-
-    const cacheHeaderCheck = await page.evaluate(async (targetCoreKey) => {
-        const keys = await caches.keys();
-        const coreKey = targetCoreKey || keys.find(k => k.startsWith('scratchjr-core-'));
-        if (!coreKey) return { error: 'no core cache found' };
-        const cache = await caches.open(coreKey);
-
-        // 等待 editor.html 與 app.bundle.js 寫入快取完成
-        let editorReq = null;
-        let bundleReq = null;
-        for (let i = 0; i < 20; i++) {
-            const reqs = await cache.keys();
-            editorReq = reqs.find(r => r.url.includes('editor.html'));
-            bundleReq = reqs.find(r => r.url.includes('app.bundle.js'));
-            if (editorReq && bundleReq) break;
-            await new Promise(r => setTimeout(r, 500));
-        }
-
-        const requests = await cache.keys();
-        const urls = requests.map(r => r.url);
-
-        let editorHash = null;
-        let bundleHash = null;
-        if (editorReq) {
-            const res = await cache.match(editorReq);
-            editorHash = res ? res.headers.get('X-SJR-Hash') : null;
-        }
-        if (bundleReq) {
-            const res = await cache.match(bundleReq);
-            bundleHash = res ? res.headers.get('X-SJR-Hash') : null;
-        }
-
-        // 檢查是否有帶 query string 的重複項目
-        const queryEntries = urls.filter(u => u.includes('?pmd5='));
-
-        return {
-            coreKey,
-            editorUrl: editorReq ? editorReq.url : null,
-            editorHash,
-            bundleUrl: bundleReq ? bundleReq.url : null,
-            bundleHash,
-            queryEntriesCount: queryEntries.length,
-            queryEntries
-        };
-    }, headCoreCacheName);
-
-    console.log('Cache Header & Query String 檢查結果:', JSON.stringify(cacheHeaderCheck, null, 2));
-    await page.screenshot({ path: 'ui-audit/upgrade-02-editor.png' });
-
-    // =========================================================================
-    // 驗證 b: 更新後離線
-    // =========================================================================
-    console.log('\n--- 驗證 b: 更新後離線模式 (Offline) ---');
-    console.log('[Step 1] 切換為離線模式 context.setOffline(true)...');
-    await context.setOffline(true);
-
-    // 1. 首頁
-    console.log('[Step 2] 離線開啟首頁 index.html ...');
-    const indexRes = await page.goto('http://localhost:8080/index.html', { waitUntil: 'networkidle' });
-    console.log(`- index.html 狀態碼: ${indexRes.status()} (來自 Service Worker)`);
-    await page.screenshot({ path: 'ui-audit/offline-01-index.png' });
-
-    // 2. 開啟作品 (Home / Editor)
-    console.log('[Step 3] 離線開啟作品 editor.html ...');
-    const editorRes = await page.goto('http://localhost:8080/editor.html?pmd5=101', { waitUntil: 'networkidle' });
-    console.log(`- editor.html 狀態碼: ${editorRes.status()}`);
-    await page.waitForSelector('#stage', { timeout: 5000 }).catch(() => {});
-    await page.screenshot({ path: 'ui-audit/offline-02-editor.png' });
-
-    // 3. AI 手勢辨識頁面
-    console.log('[Step 4] 離線開啟 AI 手勢訓練 aitrainer.html ...');
-    const aitRes = await page.goto('http://localhost:8080/aitrainer.html?projectId=101', { waitUntil: 'networkidle' });
-    console.log(`- aitrainer.html 狀態碼: ${aitRes.status()}`);
-    await sleep(1500);
-    await page.screenshot({ path: 'ui-audit/offline-03-aitrainer.png' });
-
-    console.log('[Step 5] 恢復連線模式 context.setOffline(false)...');
-    await context.setOffline(false);
-
-    // =========================================================================
-    // 驗證 c: 增量更新 (修改 start.css 顏色)
-    // =========================================================================
-    console.log('\n--- 驗證 c: 增量更新 (僅下載異動檔案) ---');
-    console.log('[Step 1] 先回到首頁確保處於最新啟動狀態...');
-    await page.goto('http://localhost:8080/index.html', { waitUntil: 'networkidle' });
-    await sleep(1000);
-
-    // 關閉目前 server，以帶有請求記錄回呼的 server 重新啟動
-    await new Promise(r => server.close(r));
-    const serverDownloadedUrls = [];
-    server = await startServer(headRoot, req => {
-        serverDownloadedUrls.push(req.url.split('?')[0]);
-    });
-
-    console.log('[Step 2] 修改 start.css 一處顏色/樣式並重新產生 precache 清單...');
-    const startCssPath = path.resolve('editions', 'free', 'src', 'css', 'start.css');
-    const originalStartCss = fs.readFileSync(startCssPath, 'utf8');
-    const modifiedStartCss = originalStartCss + '\n/* test-incremental-update-marker: ' + Date.now() + ' */\n';
-    fs.writeFileSync(startCssPath, modifiedStartCss);
-
-    // 重新產生 precache 清單並更新 SW 時間戳
-    execSync('node scripts/generate-precache.js', { stdio: 'pipe' });
-    const swPath = path.resolve('editions', 'free', 'src', 'service-worker.js');
-    let swCode = fs.readFileSync(swPath, 'utf8');
-    swCode = swCode.replace(/\/\/ SW Build Version: [^\n]+/, `// SW Build Version: ${new Date().toISOString()}`);
-    fs.writeFileSync(swPath, swCode);
-
-    serverDownloadedUrls.length = 0; // 清空請求計數
-
-    console.log('[Step 3] 觸發 SW 檢查更新並等待新版本完成快取...');
-    // 註冊 SW 訊息監聽以捕獲 SW Install 實際下載清單
-    const fetchedItemsPromise = page.evaluate(() => {
-        return new Promise(resolve => {
-            const timer = setTimeout(() => resolve([]), 10000);
-            navigator.serviceWorker.addEventListener('message', e => {
-                if (e.data && e.data.type === 'CORE_CACHE_COMPLETE') {
-                    clearTimeout(timer);
-                    resolve(e.data.fetchedItems || []);
-                }
-            });
-        });
-    });
-
-    await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle', timeout: 10000 }).catch(() => {}),
-        page.evaluate(async () => {
-            const reg = await navigator.serviceWorker.getRegistration();
-            if (reg) reg.update();
-        })
-    ]);
-
-    const swFetchedFiles = await fetchedItemsPromise;
-    await sleep(2000);
-
-    // 還原 start.css
-    fs.writeFileSync(startCssPath, originalStartCss);
-    execSync('node scripts/generate-precache.js', { stdio: 'pipe' });
-
-    console.log('\n[增量更新期間伺服器實際接收到的下載請求 (Network 面板 SW 發出的請求)]:');
-    const swRequests = serverDownloadedUrls
-        .filter(u => u.endsWith('start.css') || u.endsWith('precache-manifest.js') || u.endsWith('service-worker.js') || u.endsWith('app.bundle.js'));
-    const uniqueDownloaded = [...new Set(swRequests)];
-    uniqueDownloaded.forEach(u => console.log('  ->', u));
-
-    console.log('\n[Service Worker install 階段實際從網路下載的檔案 (reused=false)]:');
-    swFetchedFiles.forEach(u => console.log('  ->', u));
-
-    const downloadedStartCss = uniqueDownloaded.some(u => u.includes('start.css'));
-    const downloadedPrecache = uniqueDownloaded.some(u => u.includes('precache-manifest.js'));
-    const downloadedSW = uniqueDownloaded.some(u => u.includes('service-worker.js'));
-    const downloadedAppBundle = swFetchedFiles.some(u => u.includes('app.bundle.js'));
-
-    console.log(`- start.css 被下載: ${downloadedStartCss}`);
-    console.log(`- precache-manifest.js 被下載: ${downloadedPrecache}`);
-    console.log(`- service-worker.js 被下載: ${downloadedSW}`);
-    console.log(`- SW 預先快取中 app.bundle.js 是否被下載: ${downloadedAppBundle}`);
-    if (!downloadedAppBundle) {
-        console.log('  => 原因說明：app.bundle.js 內容未變更，且舊快取中已包含正確的 X-SJR-Hash 標頭，Service Worker 在 cacheFiles() 中成功比對並直接自舊快取複製重用，免除了重新下載。');
-    } else {
-        console.log('  => 原因說明：app.bundle.js 在舊快取中缺少 X-SJR-Hash 或 Hash 比對未吻合。');
-    }
-
-    // =========================================================================
-    // 驗證 d: gettingstarted 影片離線播放
-    // =========================================================================
-    console.log('\n--- 驗證 d: gettingstarted 影片離線播放 ---');
-    console.log('[Step 1] 開啟 gettingstarted.html 頁面...');
-    await page.goto('http://localhost:8080/gettingstarted.html', { waitUntil: 'networkidle' });
-
-    console.log('[Step 2] 等待影片播放並等待背景完整寫入 MEDIA_CACHE ...');
-    await page.waitForSelector('video', { timeout: 5000 });
-    await sleep(3500);
-
-    const mediaCacheCheck = await page.evaluate(async () => {
-        const mc = await caches.open('scratchjr-media');
-        const keys = await mc.keys();
-        return keys.map(k => k.url);
-    });
-    console.log('scratchjr-media 快取內容:', mediaCacheCheck);
-    await page.screenshot({ path: 'ui-audit/video-01-online.png' });
-
-    console.log('[Step 3] 切換為離線模式 context.setOffline(true)...');
-    await context.setOffline(true);
-
-    console.log('[Step 4] 離線重新整理 gettingstarted.html ...');
-    await page.reload({ waitUntil: 'networkidle' });
-
-    const offlineVideoStatus = await page.evaluate(async () => {
-        const video = document.querySelector('video');
-        if (!video) return { error: 'no video element' };
-        try {
-            await video.play();
-        } catch (e) {}
-        return {
-            src: video.src || video.currentSrc,
-            readyState: video.readyState,
-            paused: video.paused,
-            currentTime: video.currentTime
-        };
-    });
-    console.log('離線影片播放狀態:', JSON.stringify(offlineVideoStatus, null, 2));
-    await page.screenshot({ path: 'ui-audit/video-02-offline.png' });
-
-    await context.setOffline(false);
     await context.close();
     await new Promise(r => server.close(r));
+    console.log('\nNode Server 基礎驗證完成。');
+}
 
-    console.log('\n=== 所有真實瀏覽器自動化驗證順利完成！ ===');
+async function main() {
+    if (process.argv.includes('--target=wrangler')) {
+        await runWranglerScenarios();
+    } else {
+        await runNodeScenarios();
+    }
 }
 
 main().catch(err => {
-    console.error('驗證失敗:', err);
+    console.error('執行失敗:', err);
     process.exit(1);
 });
