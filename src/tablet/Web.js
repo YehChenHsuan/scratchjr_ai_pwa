@@ -590,7 +590,7 @@ export default class Web {
 
     // ---- Share & misc -----------------------------------------------------
     // Builds the .sjr zip blob for a project. Resolves with {blob, fileName}.
-    static buildProjectZipBlob (projectData, name) {
+    static buildProjectZipBlob (projectData, name, metadata) {
         const safeName = (name || 'ScratchJrProject').replace(/[^a-z0-9_-]/gi, '_');
         const zip = new JSZip();
         const project = zip.folder('project');
@@ -603,15 +603,48 @@ export default class Web {
         ]).then(([media, userShapes, userBackgrounds]) => {
             const parsed = JSON.parse(projectData);
             const projectId = String(parsed.id || '');
-            project.file('library/usershapes.json', JSON.stringify(userShapes));
-            project.file('library/userbkgs.json', JSON.stringify(userBackgrounds));
-            media.forEach(record => {
+
+            let filteredShapes = userShapes;
+            let filteredBkgs = userBackgrounds;
+            let filteredMedia = media;
+
+            if (metadata) {
+                const needed = new Set();
+                ['thumbnails', 'characters', 'backgrounds', 'sounds'].forEach(key => {
+                    if (Array.isArray(metadata[key])) {
+                        metadata[key].forEach(md5 => {
+                            if (md5) needed.add(md5);
+                        });
+                    }
+                });
+
+                filteredShapes = userShapes.filter(record => {
+                    if (!record || !record.md5 || !needed.has(record.md5)) return false;
+                    if (record.altmd5) needed.add(record.altmd5);
+                    return true;
+                });
+
+                filteredBkgs = userBackgrounds.filter(record => {
+                    if (!record || !record.md5 || !needed.has(record.md5)) return false;
+                    if (record.altmd5) needed.add(record.altmd5);
+                    return true;
+                });
+
+                filteredMedia = media.filter(record => record && record.md5 && needed.has(record.md5));
+            }
+
+            project.file('library/usershapes.json', JSON.stringify(filteredShapes));
+            project.file('library/userbkgs.json', JSON.stringify(filteredBkgs));
+            filteredMedia.forEach(record => {
                 if (record && record.md5 && record.data) {
                     project.file('media/' + record.md5, record.data, {base64: true});
                 }
             });
-            return tx(STORE_GESTURES).then(store => p(store.get(projectId)));
-        }).then(gesture => {
+            return tx(STORE_GESTURES).then(store => p(store.get(projectId))).then(gesture => ({
+                gesture,
+                mediaCount: filteredMedia.length
+            }));
+        }).then(({gesture, mediaCount}) => {
             if (gesture && gesture.payload) {
                 project.file('gestures/model.json', JSON.stringify(gesture.payload));
             }
@@ -620,12 +653,18 @@ export default class Web {
                 version: 1,
                 createdAt: new Date().toISOString()
             }));
-            return zip.generateAsync({type: 'blob', compression: 'DEFLATE'});
-        }).then(blob => ({blob, fileName: safeName + '.sjr'}));
+            return zip.generateAsync({type: 'blob', compression: 'DEFLATE'}).then(blob => {
+                const kb = (blob.size / 1024).toFixed(1);
+                console.log( // eslint-disable-line no-console
+                    `[Web.buildProjectZipBlob] 打包媒體數量: ${mediaCount}, 檔案大小: ${blob.size} bytes (${kb} KB)`
+                );
+                return {blob, fileName: safeName + '.sjr'};
+            });
+        });
     }
 
     static createZipForProject (projectData, metadata, name, fcn) {
-        Web.buildProjectZipBlob(projectData, name).then(({blob, fileName}) => {
+        Web.buildProjectZipBlob(projectData, name, metadata).then(({blob, fileName}) => {
             const a = document.createElement('a');
             const url = URL.createObjectURL(blob);
             a.href = url;
@@ -648,7 +687,7 @@ export default class Web {
     // when the Web Share API with file support is available; otherwise falls back
     // to a plain download, same as createZipForProject.
     static shareProjectFile (projectData, metadata, name, emailSubject, fcn) {
-        Web.buildProjectZipBlob(projectData, name).then(async ({blob, fileName}) => {
+        Web.buildProjectZipBlob(projectData, name, metadata).then(async ({blob, fileName}) => {
             const file = new File([blob], fileName, {type: 'application/zip'});
             const canShareFiles = typeof navigator.canShare === 'function' &&
                 navigator.canShare({files: [file]});
@@ -735,7 +774,15 @@ export default class Web {
         if (!entry) return;
         const records = JSON.parse(await entry.async('string'));
         if (!Array.isArray(records)) return;
+
+        const existingRecords = await allRecords(storeName);
+        const existingMd5s = new Set(existingRecords.map(r => r && r.md5).filter(Boolean));
+
         for (const original of records) {
+            if (!original || !original.md5) continue;
+            if (existingMd5s.has(original.md5)) continue;
+            existingMd5s.add(original.md5);
+
             const record = Object.assign({}, original);
             delete record.id;
             await tx(storeName, 'readwrite').then(store => p(store.add(record)));
@@ -776,3 +823,8 @@ function OS_soundDone (name) {
         if (OS && OS.soundDone) OS.soundDone(name);
     } catch (e) {}
 }
+
+if (typeof window !== 'undefined') {
+    window.__Web = Web;
+}
+
