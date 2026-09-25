@@ -1,4 +1,4 @@
-self.__SCRATCHJR_PRECACHE_VERSION="4a72c759dec06e41";
+self.__SCRATCHJR_PRECACHE_VERSION="34022560dd84b43e";
 self.__SCRATCHJR_AI_VERSION="d1936e4930b42abf";
 self.__SCRATCHJR_CORE_URLS=[
   "./aitrainer.html",
@@ -706,7 +706,7 @@ self.__SCRATCHJR_CORE_HASHES={
   "./assets/aitrainer/hand_B.svg": "73f1caa1797c",
   "./assets/aitrainer/hand_C.svg": "00aa76208f40",
   "./assets/aitrainer/hand_D.svg": "ee6cbc29fb25",
-  "./assets/balloon.svg": "59e6ecf7ccd6",
+  "./assets/balloon.svg": "31574f98b034",
   "./assets/blockicons/Appear.svg": "de6131e168ff",
   "./assets/blockicons/Back.svg": "f8ee93dd0560",
   "./assets/blockicons/Bump.svg": "ad03aeedcdc2",
@@ -889,8 +889,8 @@ self.__SCRATCHJR_CORE_HASHES={
   "./assets/paint/selectOn.svg": "d1163bb19825",
   "./assets/paint/snapOff.svg": "0ac8788a5f0c",
   "./assets/paint/snapOn.svg": "fce4b323188e",
-  "./assets/paint/splash.svg": "692149f40f84",
-  "./assets/paint/splashshade.svg": "eda2cbf3cda7",
+  "./assets/paint/splash.svg": "ba5e98038142",
+  "./assets/paint/splashshade.svg": "53e371047766",
   "./assets/paint/stamperOff.svg": "ffc1bb8d6b74",
   "./assets/paint/stamperOn.svg": "294655838e0d",
   "./assets/paint/thumbOff.png": "20e86400cf1a",

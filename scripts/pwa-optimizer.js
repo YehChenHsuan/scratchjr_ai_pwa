@@ -20,9 +20,17 @@ const isExcluded = (name, relative) =>
     name === '.DS_Store' ||
     UNUSED_RUNTIME_FILES.has(relative);
 
+// Loaded as text and patched with string replace (Sprite.drawBalloon, Paint.setSplashColor).
+const TEXT_PATCHED_SVGS = new Set([
+    'assets/balloon.svg',
+    'assets/paint/splash.svg',
+    'assets/paint/splashshade.svg'
+]);
+
 // 判斷是否為 ScratchJr 核心解析之向量圖（絕對不可由 SVGO 改寫）
 function isEngineParsedSvg (relative) {
-    return relative.indexOf('svglibrary/') === 0 || relative.indexOf('samples/') === 0;
+    return relative.indexOf('svglibrary/') === 0 || relative.indexOf('samples/') === 0 ||
+        TEXT_PATCHED_SVGS.has(relative);
 }
 
 /**
